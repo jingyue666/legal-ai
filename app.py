@@ -175,7 +175,7 @@ class HunyuanClient:
                 role = "assistant" if msg["role"] == "assistant" else "user"
                 full_messages.append({"Role": role, "Content": msg["content"]})
             
-            # ⭐ 关键修复：确保最后一条消息是 assistant
+            # 关键修复：确保最后一条消息是 assistant
             if full_messages and full_messages[-1]["Role"] in ("user", "tool"):
                 full_messages.append({"Role": "assistant", "Content": "请继续。"})
 
@@ -188,8 +188,7 @@ class HunyuanClient:
         except Exception as e:
             # 降级：返回预设法律知识
             fallback = f"请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询。"
-            # 尝试从预设库中返回相关内容
-            if law_results.get("list"):
+            if 'law_results' in locals() and law_results.get("list"):
                 fallback = "【AI服务暂时不可用，以下为法律知识库内容】\n\n"
                 for law in law_results["list"][:2]:
                     fallback += f"### {law['title']}\n{law['content']}\n🔗 {law.get('url', '')}\n\n"
@@ -288,8 +287,18 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+# ===================== 动态输入框占位符 =====================
+placeholder_map = {
+    "法律解释": "例如：请解释一下民法典关于离婚冷静期的规定...",
+    "节点提醒": "例如：劳动仲裁的流程和时间节点有哪些？",
+    "智能对话": "请输入您的法律问题，系统将自动检索国家法律法规数据库...",
+    "文书生成": "例如：帮我生成一份标准的房屋租赁合同..."
+}
+current_mode = st.session_state.mode
+input_placeholder = placeholder_map.get(current_mode, "请输入您的法律问题...")
+
 # 输入框
-if prompt := st.chat_input("请输入您的法律问题..."):
+if prompt := st.chat_input(input_placeholder):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)

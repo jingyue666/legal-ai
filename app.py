@@ -293,42 +293,40 @@ class HunyuanClient:
         except Exception as e:
             return f"❌ AI服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
-    def chat_with_history(self, messages, system_prompt):
+    def chat_with_history(self, messages, system_prompt, current_prompt):
         """支持多轮对话"""
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
-            # 获取最新的用户消息
-            latest_user_msg = ""
-            for msg in reversed(messages):
-                if msg.get("role") == "user" and msg.get("content"):
-                    latest_user_msg = msg["content"]
-                    break
-            
-            # 如果没有找到用户消息，使用默认消息
-            if not latest_user_msg:
-                latest_user_msg = "你好"
+            # 使用传入的 current_prompt 作为当前用户问题
+            user_question = current_prompt if current_prompt and current_prompt.strip() else "你好"
             
             # 搜索国家法律法规数据库
-            national_laws = self.national_law_db.search_laws(latest_user_msg)
+            national_laws = self.national_law_db.search_laws(user_question)
             
             enhanced_system_prompt = system_prompt
             
             # 添加国家法律法规数据库结果
             if national_laws.get("success") and national_laws.get("list"):
                 law_context = "\n\n**【国家法律法规数据库检索结果】**\n"
+                law_context += f"🔍 搜索关键词：{user_question}\n"
+                law_context += f"📊 共找到 {national_laws.get('total', 0)} 条相关法规\n\n"
                 for law in national_laws.get("list", [])[:3]:
-                    law_context += f"\n### 📜 {law.get('title', '未知标题')}\n"
+                    law_context += f"### 📜 {law.get('title', '未知标题')}\n"
                     law_context += f"{law.get('content', law.get('summary', ''))}\n"
                     if law.get('url'):
                         law_context += f"\n🔗 查看原文：{law.get('url')}\n"
-                enhanced_system_prompt += law_context
+                    law_context += "\n"
+                enhanced_system_prompt += law_context + "\n请优先引用以上官方法律条文，给出专业、准确的回答。"
+            else:
+                search_url = self.national_law_db.get_recommended_link(user_question)
+                enhanced_system_prompt += f"\n\n如需查询更多相关法律条文，请访问国家法律法规数据库：{search_url}"
             
             # 构建消息列表
             full_messages = [{"Role": "system", "Content": enhanced_system_prompt}]
             
-            # 过滤并添加历史消息
+            # 添加历史消息
             for msg in messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
@@ -340,11 +338,8 @@ class HunyuanClient:
                     elif role == "assistant":
                         full_messages.append({"Role": "assistant", "Content": content.strip()})
             
-            # 如果消息列表为空或最后一条不是用户消息，添加当前用户消息
-            if not full_messages or len(full_messages) == 1:  # 只有system消息
-                full_messages.append({"Role": "user", "Content": latest_user_msg})
-            elif full_messages[-1]["Role"] != "user":
-                full_messages.append({"Role": "user", "Content": latest_user_msg})
+            # 添加当前用户问题
+            full_messages.append({"Role": "user", "Content": user_question})
             
             req.Messages = full_messages
             req.Temperature = 0.7
@@ -358,13 +353,8 @@ class HunyuanClient:
             # 如果是参数错误，尝试使用简化的chat方法
             if "InvalidParameter" in error_msg:
                 try:
-                    # 获取最新的用户消息
-                    user_msg = "你好"
-                    for msg in reversed(messages):
-                        if msg.get("role") == "user" and msg.get("content"):
-                            user_msg = msg["content"]
-                            break
-                    return self.chat(user_msg, system_prompt)
+                    user_question = current_prompt if current_prompt and current_prompt.strip() else "你好"
+                    return self.chat(user_question, system_prompt)
                 except Exception as fallback_error:
                     return f"❌ 请求失败：{str(fallback_error)}"
             
@@ -793,11 +783,12 @@ if prompt:
         "法律解释": """你是专业法律科普助手。
 请结合国家法律法规数据库的官方条文，提供针对性的法律解读。
 回答中请注明法律条文来源，必要时提供官方链接。
-回答要通俗易懂。""",
+回答要通俗易懂，直接回答用户的问题，不要反问用户。""",
 
         "智能对话": """你是专业的法律顾问。
 请结合国家法律法规，用通俗易懂的语言解答法律问题。
-优先引用官方法律条文，给出切实可行的建议。"""
+优先引用官方法律条文，给出切实可行的建议。
+直接回答用户的问题，不要反问用户。"""
     }
     
     system_prompt = system_prompts.get(st.session_state.mode, system_prompts["智能对话"])
@@ -806,12 +797,13 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
-                # 传入完整的历史消息
+                # 传入完整的历史消息和当前问题
                 history = st.session_state.messages[:-1]  # 获取除了最后一条用户消息外的所有历史
                 
                 response = st.session_state.hy_client.chat_with_history(
                     history,
-                    system_prompt
+                    system_prompt,
+                    prompt.strip()  # 传入当前问题
                 )
                 
                 st.markdown(response)

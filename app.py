@@ -253,6 +253,10 @@ class HunyuanClient:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
+            # 确保 prompt 不为空
+            if not prompt or not prompt.strip():
+                prompt = "你好"
+            
             # 搜索国家法律法规数据库
             national_laws = self.national_law_db.search_laws(prompt)
             
@@ -298,9 +302,13 @@ class HunyuanClient:
             # 获取最新的用户消息
             latest_user_msg = ""
             for msg in reversed(messages):
-                if msg.get("role") == "user":
+                if msg.get("role") == "user" and msg.get("content"):
                     latest_user_msg = msg["content"]
                     break
+            
+            # 如果没有找到用户消息，使用默认消息
+            if not latest_user_msg:
+                latest_user_msg = "你好"
             
             # 搜索国家法律法规数据库
             national_laws = self.national_law_db.search_laws(latest_user_msg)
@@ -320,19 +328,23 @@ class HunyuanClient:
             # 构建消息列表
             full_messages = [{"Role": "system", "Content": enhanced_system_prompt}]
             
+            # 过滤并添加历史消息
             for msg in messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 
-                if role == "user" and content:
-                    full_messages.append({"Role": "user", "Content": content})
-                elif role == "assistant" and content:
-                    full_messages.append({"Role": "assistant", "Content": content})
+                # 只添加有效角色和非空内容的消息
+                if role in ["user", "assistant"] and content and content.strip():
+                    if role == "user":
+                        full_messages.append({"Role": "user", "Content": content.strip()})
+                    elif role == "assistant":
+                        full_messages.append({"Role": "assistant", "Content": content.strip()})
             
-            # 确保最后一条消息是用户消息
-            if not full_messages or full_messages[-1]["Role"] != "user":
-                if latest_user_msg:
-                    full_messages.append({"Role": "user", "Content": latest_user_msg})
+            # 如果消息列表为空或最后一条不是用户消息，添加当前用户消息
+            if not full_messages or len(full_messages) == 1:  # 只有system消息
+                full_messages.append({"Role": "user", "Content": latest_user_msg})
+            elif full_messages[-1]["Role"] != "user":
+                full_messages.append({"Role": "user", "Content": latest_user_msg})
             
             req.Messages = full_messages
             req.Temperature = 0.7
@@ -341,11 +353,21 @@ class HunyuanClient:
             
         except Exception as e:
             error_msg = str(e)
+            print(f"Error in chat_with_history: {error_msg}")
+            
+            # 如果是参数错误，尝试使用简化的chat方法
             if "InvalidParameter" in error_msg:
                 try:
-                    return self.chat(latest_user_msg if 'latest_user_msg' in locals() else "", system_prompt)
-                except:
-                    pass
+                    # 获取最新的用户消息
+                    user_msg = "你好"
+                    for msg in reversed(messages):
+                        if msg.get("role") == "user" and msg.get("content"):
+                            user_msg = msg["content"]
+                            break
+                    return self.chat(user_msg, system_prompt)
+                except Exception as fallback_error:
+                    return f"❌ 请求失败：{str(fallback_error)}"
+            
             return f"❌ 请求失败：{error_msg}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
     def generate_document(self, doc_type: str, case_info: Dict) -> str:
@@ -756,8 +778,13 @@ for msg in st.session_state.messages:
 # 输入框
 prompt = st.chat_input("请输入您的法律问题...")
 if prompt:
+    # 确保prompt不为空
+    if not prompt.strip():
+        st.error("请输入有效的问题")
+        st.stop()
+    
     # 添加用户消息
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.messages.append({"role": "user", "content": prompt.strip()})
     with st.chat_message("user"):
         st.markdown(prompt)
     

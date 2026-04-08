@@ -101,7 +101,7 @@ class NationalLawDatabase:
         """搜索法律法规"""
         matched_laws = self._search_from_preset(keyword)
         
-        if matched_laws:# 优先从预设知识库搜索
+        if matched_laws:  # 优先从预设知识库搜索
             return {
                 "success": True,
                 "total": len(matched_laws),
@@ -110,7 +110,7 @@ class NationalLawDatabase:
                 "source": "法律知识库"
             }
         
-        try:# 从国家法律法规数据库搜索
+        try:  # 从国家法律法规数据库搜索
             params = {
                 "keyword": keyword,
                 "page": page,
@@ -137,7 +137,7 @@ class NationalLawDatabase:
         
         return self._get_empty_result(keyword)
     
-    def _search_from_preset(self, keyword: str) -> List:# 从预设知识库搜索
+    def _search_from_preset(self, keyword: str) -> List:  # 从预设知识库搜索
         """从预设知识库搜索"""
         results = []
         keyword_lower = keyword.lower()
@@ -158,7 +158,7 @@ class NationalLawDatabase:
         
         return results
     
-    def _parse_search_results(self, results: List) -> List:# 解析国家法律法规数据库搜索结果
+    def _parse_search_results(self, results: List) -> List:  # 解析国家法律法规数据库搜索结果
         """解析搜索结果"""
         parsed = []
         for item in results:
@@ -184,7 +184,7 @@ class NationalLawDatabase:
             "message": f"请访问国家法律法规数据库查询：https://flk.npc.gov.cn/"
         }
     
-    def get_recommended_link(self, keyword: str) -> str:# 获取推荐查询链接
+    def get_recommended_link(self, keyword: str) -> str:  # 获取推荐查询链接
         """获取推荐查询链接"""
         return f"https://flk.npc.gov.cn/?keyword={keyword}"
 
@@ -292,7 +292,7 @@ class UserInfoManager:
 
 # ===================== 混元AI客户端 =====================
 class HunyuanClient:
-    def __init__(self, secret_id, secret_key, law_db):# 初始化混元AI客户端
+    def __init__(self, secret_id, secret_key, law_db):  # 初始化混元AI客户端
         self.cred = credential.Credential(secret_id, secret_key)
         self.httpProfile = HttpProfile()
         self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
@@ -302,11 +302,11 @@ class HunyuanClient:
         self.law_db = law_db
         self.national_law_db = NationalLawDatabase()
 
-    def search_national_laws(self, keyword: str) -> Dict:# 搜索国家法律法规数据库
+    def search_national_laws(self, keyword: str) -> Dict:  # 搜索国家法律法规数据库
         """搜索国家法律法规数据库"""
         return self.national_law_db.search_laws(keyword)
 
-    def _clean_messages(self, messages):# 清理消息格式
+    def _clean_messages(self, messages):  # 清理消息格式
         """清理消息格式，确保符合API要求"""
         cleaned = []
         for msg in messages:
@@ -383,6 +383,7 @@ class HunyuanClient:
             
             # 添加用户信息到系统提示
             if user_info:
+                # 使用全局的 user_info_manager 实例
                 user_info_str = st.session_state.user_info_manager.format_user_info(user_info)
                 if user_info_str != "暂无用户信息":
                     enhanced_system_prompt = f"{enhanced_system_prompt}\n\n{user_info_str}\n请根据用户的个人情况和案件信息，提供针对性的法律建议。"
@@ -561,11 +562,12 @@ def init_session_state():
         st.session_state.hy_client = None
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "welcome_message" not in st.session_state:  # 新增：欢迎消息单独存储
+        st.session_state.welcome_message = None
     if "mode" not in st.session_state:
         st.session_state.mode = "法律解释"
     if "law_db" not in st.session_state:
         st.session_state.law_db = LocalLawDatabase()
-    # 新增用户信息相关状态
     if "user_info_collected" not in st.session_state:
         st.session_state.user_info_collected = {}
     if "collecting_info" not in st.session_state:
@@ -604,6 +606,7 @@ with st.sidebar:
         if st.button("🚪 退出登录", use_container_width=True):
             st.session_state.hy_client = None
             st.session_state.messages = []
+            st.session_state.welcome_message = None  # 清空欢迎消息
             st.session_state.collecting_info = True
             st.session_state.user_info_collected = {}
             st.rerun()
@@ -655,6 +658,7 @@ with st.sidebar:
         st.markdown("### 🛠️ 对话控制")
         if st.button("🗑️ 清空对话", use_container_width=True):
             st.session_state.messages = []
+            st.session_state.welcome_message = None  # 同时清空欢迎消息
             st.rerun()
     
     st.markdown("---")
@@ -981,9 +985,14 @@ if st.session_state.mode == "文书生成":
     
     st.stop()
 
-
 # ===================== 智能对话主聊天区域 =====================
-if not st.session_state.messages:
+# 显示欢迎消息（如果存在）
+if st.session_state.welcome_message:
+    with st.chat_message("assistant"):
+        st.markdown(st.session_state.welcome_message)
+
+# 如果没有对话历史且没有欢迎消息，生成欢迎消息
+if not st.session_state.messages and not st.session_state.welcome_message:
     # 根据用户信息生成个性化欢迎消息
     user_name = st.session_state.user_info_collected.get("name", "用户")
     case_type = st.session_state.user_info_collected.get("case_type", "")
@@ -1016,7 +1025,8 @@ if not st.session_state.messages:
 请随时向我提问，我会结合您的具体情况，为您提供专业的法律建议！
 """
     
-    st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
+    st.session_state.welcome_message = welcome_msg
+    st.rerun()
 
 # 显示对话历史
 for msg in st.session_state.messages:
@@ -1056,10 +1066,9 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("🔍 正在检索国家法律法规数据库并分析您的个人情况..."):
             try:
-                # 传入完整的历史消息和用户信息
-                history = st.session_state.messages[:-1]
+                # 传入完整的历史消息和用户信息（只传递真正的对话历史）
                 response = st.session_state.hy_client.chat_with_history(
-                    history, 
+                    st.session_state.messages[:-1],  # 不包含当前问题
                     system_prompt,
                     st.session_state.user_info_collected
                 )

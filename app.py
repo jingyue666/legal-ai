@@ -723,7 +723,9 @@ if st.session_state.mode == "文书生成":
     st.stop()
 
 # ===================== 主聊天区域 =====================
-# 不再自动显示欢迎消息，等待用户输入
+# 不再自动显示欢迎消息，用户直接输入问题即可
+if not st.session_state.messages:
+    st.info("💡 请输入您的法律问题，系统将自动检索国家法律法规数据库并给出专业解答")
 
 # 显示对话历史
 for msg in st.session_state.messages:
@@ -752,6 +754,7 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
+                # 传入完整的历史消息（不包括刚添加的assistant回复）
                 history = st.session_state.messages[:-1]
                 response = st.session_state.hy_client.chat_with_history(history, system_prompt)
                 

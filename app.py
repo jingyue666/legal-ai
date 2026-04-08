@@ -231,68 +231,9 @@ class LocalLawDatabase:
         except Exception:
             return False
 
-# ===================== 用户信息收集与管理 =====================
-class UserInfoManager:
-    """用户信息管理器"""
-    
-    def __init__(self):
-        self.user_info_fields = {
-            "basic": {
-                "name": "姓名",
-                "age": "年龄",
-                "occupation": "职业",
-                "education": "学历"
-            },
-            "case_related": {
-                "case_type": "案件类型",
-                "case_role": "您在案件中的角色",
-                "incident_date": "事件发生时间",
-                "current_status": "当前进展状态"
-            },
-            "contact": {
-                "phone": "联系电话",
-                "email": "电子邮箱",
-                "address": "通讯地址"
-            }
-        }
-    
-    def get_missing_fields(self, collected_info: Dict) -> List:
-        """获取未填写的字段"""
-        missing = []
-        for category, fields in self.user_info_fields.items():
-            for key, label in fields.items():
-                if key not in collected_info or not collected_info[key]:
-                    missing.append({"key": key, "label": label, "category": category})
-        return missing
-    
-    def format_user_info(self, collected_info: Dict) -> str:
-        """格式化用户信息用于系统提示"""
-        if not collected_info:
-            return "暂无用户信息"
-        
-        info_str = "\n**用户信息：**\n"
-        
-        # 基本信息
-        basic_info = []
-        for key, label in self.user_info_fields["basic"].items():
-            if key in collected_info and collected_info[key]:
-                basic_info.append(f"- {label}：{collected_info[key]}")
-        if basic_info:
-            info_str += "\n".join(basic_info) + "\n"
-        
-        # 案件信息
-        case_info = []
-        for key, label in self.user_info_fields["case_related"].items():
-            if key in collected_info and collected_info[key]:
-                case_info.append(f"- {label}：{collected_info[key]}")
-        if case_info:
-            info_str += "\n" + "\n".join(case_info) + "\n"
-        
-        return info_str
-
 # ===================== 混元AI客户端 =====================
 class HunyuanClient:
-    def __init__(self, secret_id, secret_key, law_db, user_info_manager):  # 初始化混元AI客户端
+    def __init__(self, secret_id, secret_key, law_db):  # 初始化混元AI客户端
         self.cred = credential.Credential(secret_id, secret_key)
         self.httpProfile = HttpProfile()
         self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
@@ -301,7 +242,6 @@ class HunyuanClient:
         self.client = hunyuan_client.HunyuanClient(self.cred, "ap-beijing", self.clientProfile)
         self.law_db = law_db
         self.national_law_db = NationalLawDatabase()
-        self.user_info_manager = user_info_manager  # 存储 user_info_manager
 
     def search_national_laws(self, keyword: str) -> Dict:  # 搜索国家法律法规数据库
         """搜索国家法律法规数据库"""
@@ -349,8 +289,8 @@ class HunyuanClient:
         except Exception as e:
             return f"❌ AI服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
-    def chat_with_history(self, messages, system_prompt, user_info: Dict = None):
-        """支持多轮对话，并整合用户信息"""
+    def chat_with_history(self, messages, system_prompt):
+        """支持多轮对话"""
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
@@ -366,13 +306,6 @@ class HunyuanClient:
             national_laws = self.national_law_db.search_laws(latest_user_msg)
             
             enhanced_system_prompt = system_prompt
-            
-            # 添加用户信息到系统提示
-            if user_info:
-                # 使用传入的 user_info_manager 实例
-                user_info_str = self.user_info_manager.format_user_info(user_info)
-                if user_info_str != "暂无用户信息":
-                    enhanced_system_prompt = f"{enhanced_system_prompt}\n\n{user_info_str}\n请根据用户的个人情况和案件信息，提供针对性的法律建议。"
             
             # 添加国家法律法规数据库结果
             if national_laws.get("success") and national_laws.get("list"):
@@ -408,7 +341,6 @@ class HunyuanClient:
             
         except Exception as e:
             error_msg = str(e)
-            print(f"Error in chat_with_history: {error_msg}")  # 调试信息
             if "InvalidParameter" in error_msg:
                 try:
                     return self.chat(latest_user_msg if 'latest_user_msg' in locals() else "", system_prompt)
@@ -554,17 +486,9 @@ def init_session_state():
     if "welcome_shown" not in st.session_state:  # 标记欢迎消息是否已显示
         st.session_state.welcome_shown = False
     if "mode" not in st.session_state:
-        st.session_state.mode = "智能对话"  # 默认改为智能对话
+        st.session_state.mode = "智能对话"
     if "law_db" not in st.session_state:
         st.session_state.law_db = LocalLawDatabase()
-    if "user_info_collected" not in st.session_state:
-        st.session_state.user_info_collected = {}
-    if "collecting_info" not in st.session_state:
-        st.session_state.collecting_info = True
-    if "info_step" not in st.session_state:
-        st.session_state.info_step = 0
-    if "user_info_manager" not in st.session_state:
-        st.session_state.user_info_manager = UserInfoManager()
 
 init_session_state()
 
@@ -596,33 +520,12 @@ with st.sidebar:
             st.session_state.hy_client = None
             st.session_state.messages = []
             st.session_state.welcome_shown = False
-            st.session_state.collecting_info = True
-            st.session_state.user_info_collected = {}
             st.rerun()
     
     st.markdown("---")
     
-    # 用户信息显示（仅在登录后且非收集状态显示）
-    if st.session_state.hy_client is not None and not st.session_state.collecting_info:
-        st.markdown("### 👤 用户信息")
-        if st.session_state.user_info_collected:
-            for key, value in st.session_state.user_info_collected.items():
-                if value and key != "phone" and key != "email" and key != "address":
-                    st.caption(f"**{key}**: {value}")
-            if st.button("✏️ 修改信息", use_container_width=True):
-                st.session_state.collecting_info = True
-                st.session_state.info_step = 0
-                st.rerun()
-        else:
-            st.info("暂无用户信息")
-            if st.button("📝 填写信息", use_container_width=True):
-                st.session_state.collecting_info = True
-                st.rerun()
-        
-        st.markdown("---")
-    
-    # 模式选择（仅在非收集状态显示）
-    if st.session_state.hy_client is not None and not st.session_state.collecting_info:
+    # 模式选择
+    if st.session_state.hy_client is not None:
         st.markdown("### 🎯 对话模式")
         mode_options = {
             "智能对话": "💬 智能对话",
@@ -665,7 +568,6 @@ with st.sidebar:
         - 🏛️ **国家法律法规数据库**（全国人大官网）
         
         **使用技巧：**
-        - 首次使用需填写基本信息以获得个性化服务
         - 支持多轮对话
         - 自动检索法律条文
         - 按Enter键发送消息
@@ -696,7 +598,7 @@ if st.session_state.hy_client is None:
                 else:
                     with st.spinner("正在验证密钥并初始化系统..."):
                         try:
-                            cli = HunyuanClient(secret_id, secret_key, st.session_state.law_db, st.session_state.user_info_manager)
+                            cli = HunyuanClient(secret_id, secret_key, st.session_state.law_db)
                             test_result = cli.chat("测试连接", "你只需回复'正常'")
                             st.session_state.hy_client = cli
                             st.success("✅ 登录成功！已连接国家法律法规数据库")
@@ -707,145 +609,17 @@ if st.session_state.hy_client is None:
     
     st.stop()
 
-# ===================== 用户信息收集界面 =====================
-if st.session_state.collecting_info:
-    st.markdown("## 📋 个人信息收集")
-    st.markdown("为了给您提供更精准的法律建议，请先填写以下信息（可选择性填写）：")
-    
-    # 信息收集步骤
-    steps = ["基本信息", "案件信息", "联系方式"]
-    current_step = st.session_state.info_step
-    
-    # 步骤指示器
-    cols = st.columns(len(steps))
-    for i, (col, step) in enumerate(zip(cols, steps)):
-        with col:
-            if i < current_step:
-                st.markdown(f"✅ ~~{step}~~")
-            elif i == current_step:
-                st.markdown(f"**🔵 {step}**")
-            else:
-                st.markdown(f"⚪ {step}")
-    
-    st.markdown("---")
-    
-    if current_step == 0:
-        with st.form(key="info_form_step_0"):
-            st.markdown("### 基本信息")
-            name = st.text_input("姓名/称呼", value=st.session_state.user_info_collected.get("name", ""))
-            age = st.text_input("年龄", value=st.session_state.user_info_collected.get("age", ""))
-            occupation = st.text_input("职业", value=st.session_state.user_info_collected.get("occupation", ""))
-            
-            education_options = ["", "小学", "初中", "高中/中专", "大专", "本科", "硕士", "博士"]
-            current_edu = st.session_state.user_info_collected.get("education", "")
-            edu_index = education_options.index(current_edu) if current_edu in education_options else 0
-            education = st.selectbox("学历", education_options, index=edu_index)
-            
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col3:
-                next_btn = st.form_submit_button("下一步 →", use_container_width=True)
-            with col2:
-                skip_btn = st.form_submit_button("跳过", use_container_width=True)
-            
-            if next_btn or skip_btn:
-                if name: st.session_state.user_info_collected["name"] = name
-                if age: st.session_state.user_info_collected["age"] = age
-                if occupation: st.session_state.user_info_collected["occupation"] = occupation
-                if education: st.session_state.user_info_collected["education"] = education
-                st.session_state.info_step = 1
-                st.rerun()
-    
-    elif current_step == 1:
-        with st.form(key="info_form_step_1"):
-            st.markdown("### 案件信息")
-            
-            case_options = ["", "离婚纠纷", "合同纠纷", "劳动纠纷", "侵权纠纷", "继承纠纷", "房产纠纷", "消费者权益纠纷", "其他"]
-            current_case = st.session_state.user_info_collected.get("case_type", "")
-            case_index = case_options.index(current_case) if current_case in case_options else 0
-            case_type = st.selectbox("案件类型", case_options, index=case_index)
-            
-            role_options = ["", "原告", "被告", "申请人", "被申请人", "其他"]
-            current_role = st.session_state.user_info_collected.get("case_role", "")
-            role_index = role_options.index(current_role) if current_role in role_options else 0
-            case_role = st.selectbox("您在案件中的角色", role_options, index=role_index)
-            
-            incident_date = st.date_input("事件发生时间", value=None)
-            current_status = st.text_area("当前进展状态", value=st.session_state.user_info_collected.get("current_status", ""),
-                                         placeholder="例如：已协商未果、已起诉、等待开庭等")
-            
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                prev_btn = st.form_submit_button("← 上一步", use_container_width=True)
-            with col3:
-                next_btn = st.form_submit_button("下一步 →", use_container_width=True)
-            with col2:
-                skip_btn = st.form_submit_button("跳过", use_container_width=True)
-            
-            if prev_btn:
-                st.session_state.info_step = 0
-                st.rerun()
-            elif next_btn or skip_btn:
-                if case_type: st.session_state.user_info_collected["case_type"] = case_type
-                if case_role: st.session_state.user_info_collected["case_role"] = case_role
-                if incident_date: st.session_state.user_info_collected["incident_date"] = str(incident_date)
-                if current_status: st.session_state.user_info_collected["current_status"] = current_status
-                st.session_state.info_step = 2
-                st.rerun()
-    
-    elif current_step == 2:
-        with st.form(key="info_form_step_2"):
-            st.markdown("### 联系方式（可选）")
-            st.caption("以下信息仅用于联系，不会公开")
-            
-            phone = st.text_input("联系电话", value=st.session_state.user_info_collected.get("phone", ""))
-            email = st.text_input("电子邮箱", value=st.session_state.user_info_collected.get("email", ""))
-            address = st.text_input("通讯地址", value=st.session_state.user_info_collected.get("address", ""))
-            
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                prev_btn = st.form_submit_button("← 上一步", use_container_width=True)
-            with col3:
-                complete_btn = st.form_submit_button("✅ 完成并开始咨询", use_container_width=True)
-            
-            if prev_btn:
-                st.session_state.info_step = 1
-                st.rerun()
-            elif complete_btn:
-                if phone: st.session_state.user_info_collected["phone"] = phone
-                if email: st.session_state.user_info_collected["email"] = email
-                if address: st.session_state.user_info_collected["address"] = address
-                st.session_state.collecting_info = False
-                st.rerun()
-    
-    # 显示已收集的信息摘要
-    if st.session_state.user_info_collected:
-        st.markdown("---")
-        st.markdown("### 📝 已填写信息摘要")
-        cols = st.columns(3)
-        info_items = [(k, v) for k, v in st.session_state.user_info_collected.items() if v]
-        for i, (key, value) in enumerate(info_items):
-            with cols[i % 3]:
-                st.info(f"**{key}**: {value}")
-    
-    st.stop()
-
 # ===================== 节点提醒模式 =====================
 if st.session_state.mode == "节点提醒":
     st.markdown("## ⏰ 法律流程节点提醒")
     st.markdown("请填写您的案件情况，系统将为您分析法律流程节点和具体时间提醒")
     
-    # 如果有用户信息，自动预填
-    default_case_type = st.session_state.user_info_collected.get("case_type", "离婚纠纷")
-    default_case_details = st.session_state.user_info_collected.get("current_status", "")
-    
     with st.form("node_reminder_form"):
         case_options = ["离婚纠纷", "合同纠纷", "劳动纠纷", "侵权纠纷", "继承纠纷", "房产纠纷", "消费者权益纠纷", "其他"]
-        current_index = case_options.index(default_case_type) if default_case_type in case_options else 0
-        case_type = st.selectbox("案件类型", case_options, index=current_index)
+        case_type = st.selectbox("案件类型", case_options)
         
         case_details = st.text_area(
             "案件详情", 
-            value=default_case_details,
             placeholder="请详细描述您的情况，例如：\n- 事件发生时间\n- 涉及的主要问题\n- 当前进展状态\n- 您的具体需求等",
             height=200
         )
@@ -858,17 +632,7 @@ if st.session_state.mode == "节点提醒":
             else:
                 with st.spinner("正在分析法律流程节点..."):
                     try:
-                        # 整合用户信息到分析中
-                        user_context = ""
-                        if st.session_state.user_info_collected:
-                            user_context = f"\n\n用户背景：\n"
-                            if st.session_state.user_info_collected.get("case_role"):
-                                user_context += f"- 角色：{st.session_state.user_info_collected.get('case_role')}\n"
-                            if st.session_state.user_info_collected.get("incident_date"):
-                                user_context += f"- 事发时间：{st.session_state.user_info_collected.get('incident_date')}\n"
-                        
-                        full_details = case_details + user_context
-                        result = st.session_state.hy_client.process_node_reminder(case_type, full_details)
+                        result = st.session_state.hy_client.process_node_reminder(case_type, case_details)
                         st.markdown("### 📋 法律流程节点分析")
                         st.markdown(result)
                     except Exception as e:
@@ -883,15 +647,9 @@ if st.session_state.mode == "文书生成":
     
     doc_type = st.selectbox("文书类型", ["起诉状", "答辩状", "上诉状", "劳动仲裁申请书"])
     
-    # 从用户信息中获取默认值
-    default_name = st.session_state.user_info_collected.get("name", "")
-    default_role = st.session_state.user_info_collected.get("case_role", "")
-    
     with st.form("document_form"):
         if doc_type == "起诉状":
-            plaintiff_default = f"{default_name}" if default_name else ""
-            plaintiff = st.text_area("原告信息", value=plaintiff_default, 
-                                    placeholder="姓名、性别、身份证号、住址、联系方式等")
+            plaintiff = st.text_area("原告信息", placeholder="姓名、性别、身份证号、住址、联系方式等")
             defendant = st.text_area("被告信息", placeholder="姓名、性别、身份证号、住址、联系方式等")
             claims = st.text_area("诉讼请求", placeholder="请列出具体的诉讼请求，每项一行")
             facts = st.text_area("事实与理由", placeholder="请详细描述案件事实和法律依据")
@@ -911,9 +669,7 @@ if st.session_state.mode == "文书生成":
                     st.markdown(result)
         
         elif doc_type == "答辩状":
-            defendant_default = f"{default_name}" if default_role == "被告" else ""
-            defendant = st.text_area("被告信息", value=defendant_default,
-                                    placeholder="姓名、性别、身份证号、住址、联系方式等")
+            defendant = st.text_area("被告信息", placeholder="姓名、性别、身份证号、住址、联系方式等")
             plaintiff = st.text_area("原告信息", placeholder="原告姓名")
             defense = st.text_area("答辩意见", placeholder="请列出答辩意见和法律依据")
             
@@ -951,9 +707,7 @@ if st.session_state.mode == "文书生成":
                     st.markdown(result)
         
         elif doc_type == "劳动仲裁申请书":
-            applicant_default = f"{default_name}" if default_name else ""
-            applicant = st.text_area("申请人信息", value=applicant_default,
-                                    placeholder="姓名、性别、身份证号、住址、联系方式等")
+            applicant = st.text_area("申请人信息", placeholder="姓名、性别、身份证号、住址、联系方式等")
             respondent = st.text_area("被申请人信息", placeholder="公司名称、法定代表人、地址等")
             claims = st.text_area("仲裁请求", placeholder="请列出具体的仲裁请求")
             facts = st.text_area("事实与理由", placeholder="请详细描述事实经过")
@@ -977,36 +731,16 @@ if st.session_state.mode == "文书生成":
 # ===================== 智能对话主聊天区域 =====================
 # 显示欢迎消息（仅当没有对话历史且未显示过欢迎消息时）
 if not st.session_state.messages and not st.session_state.welcome_shown:
-    # 根据用户信息生成个性化欢迎消息
-    user_name = st.session_state.user_info_collected.get("name", "用户")
-    case_type = st.session_state.user_info_collected.get("case_type", "")
-    case_role = st.session_state.user_info_collected.get("case_role", "")
-    
-    welcome_msg = f"""
-您好，{user_name}！我是司法流程辅助系统的智能助手。👋
+    welcome_msg = """
+您好！我是司法流程辅助系统的智能助手。👋
 
-"""
-    if case_type and case_role:
-        welcome_msg += f"""
-根据您填写的信息，我了解到您正在处理**{case_type}**案件，您的角色是**{case_role}**。
-
-我将基于这些信息为您提供针对性的法律建议和流程指导。
-
-"""
-    else:
-        welcome_msg += """
-为了更好地为您服务，我建议您先完善个人信息（点击侧边栏的"修改信息"按钮）。
-
-"""
-    
-    welcome_msg += """
 您可以：
 - 📚 询问具体法律条文的解释
 - ⚖️ 咨询法律程序和流程
 - 📝 了解相关案例和判例
 - 💡 获取维权建议和策略
 
-请随时向我提问，我会结合您的具体情况，为您提供专业的法律建议！
+请随时向我提问，我会为您提供专业的法律建议！
 """
     
     with st.chat_message("assistant"):
@@ -1020,46 +754,37 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # 输入框
-prompt = st.chat_input("请输入您的法律问题，系统将结合您的个人信息提供针对性建议...")
+prompt = st.chat_input("请输入您的法律问题...")
 if prompt:
     # 添加用户消息
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # 系统提示词（结合用户信息）
+    # 系统提示词
     system_prompts = {
-        "法律解释": f"""你是专业法律科普助手。
-
-{st.session_state.user_info_manager.format_user_info(st.session_state.user_info_collected)}
-
-请根据用户的个人情况和案件背景，结合国家法律法规数据库的官方条文，提供针对性的法律解读。
+        "法律解释": """你是专业法律科普助手。
+请结合国家法律法规数据库的官方条文，提供针对性的法律解读。
 回答中请注明法律条文来源，必要时提供官方链接。
-回答要通俗易懂，如果用户是特定角色（如原告、被告），要从该角色的角度给出建议。""",
+回答要通俗易懂。""",
 
-        "智能对话": f"""你是专业的法律顾问。
-
-{st.session_state.user_info_manager.format_user_info(st.session_state.user_info_collected)}
-
-请根据用户的个人情况和案件背景，结合国家法律法规，用通俗易懂的语言解答法律问题。
-优先引用官方法律条文，提供针对用户具体情况的建议。
-要考虑用户的案件类型、角色和当前状态，给出切实可行的建议。"""
+        "智能对话": """你是专业的法律顾问。
+请结合国家法律法规，用通俗易懂的语言解答法律问题。
+优先引用官方法律条文，给出切实可行的建议。"""
     }
     
     system_prompt = system_prompts.get(st.session_state.mode, system_prompts["智能对话"])
     
     # 获取AI回复
     with st.chat_message("assistant"):
-        with st.spinner("🔍 正在检索国家法律法规数据库并分析您的个人情况..."):
+        with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
-                # 传入完整的历史消息和用户信息（只传递真正的对话历史）
-                # 注意：st.session_state.messages 已经包含了刚添加的用户消息
+                # 传入完整的历史消息
                 history = st.session_state.messages[:-1]  # 获取除了最后一条用户消息外的所有历史
                 
                 response = st.session_state.hy_client.chat_with_history(
                     history,
-                    system_prompt,
-                    st.session_state.user_info_collected
+                    system_prompt
                 )
                 
                 st.markdown(response)

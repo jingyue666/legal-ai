@@ -1,4 +1,2 @@
-streamlit>=1.28
-requests
-tencentcloud-sdk-python
-python-dotenv
+streamlit>=1.28.0
+tencentcloud-sdk-python>=3.0.0

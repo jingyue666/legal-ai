@@ -1,24 +1,12 @@
 import streamlit as st
 import time
 import json
+import os
 from typing import List, Dict
 from tencentcloud.common import credential
 from tencentcloud.common.profile.client_profile import ClientProfile
 from tencentcloud.common.profile.http_profile import HttpProfile
 from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
-
-# ===================== 全局配置 =====================
-st.set_page_config(page_title="司法流程辅助系统", page_icon="⚖️", layout="wide")
-
-# 初始化会话状态
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "hy_client" not in st.session_state:
-    st.session_state.hy_client = None
-if "mode" not in st.session_state:
-    st.session_state.mode = "智能对话"
-if "law_db" not in st.session_state:
-    st.session_state.law_db = None
 
 # ===================== 国家法律法规数据库检索模块 =====================
 class NationalLawDatabase:
@@ -38,13 +26,14 @@ class NationalLawDatabase:
             },
             "欠钱": {
                 "title": "中华人民共和国民法典·合同编",
-                "content": """**第六百七十五条** 借款人应当按照约定的期限返还借款。对借款期限没有约定或约定不明，依据本法第五百一十条仍不能确定的，借款人可以随时返还；贷款人可以催告借款人在合理期限内返还。""",
+                "content": """**第六百七十五条** 借款人应当按照约定的期限返还借款。
+**第六百七十六条** 借款人未按照约定的期限返还借款的，应当支付逾期利息。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             },
             "合同": {
                 "title": "中华人民共和国民法典·合同编",
                 "content": """**第四百六十九条** 当事人订立合同，可以采用书面形式、口头形式或者其他形式。
-**第五百七十七条** 当事人一方不履行合同义务或履行不符合约定，应承担继续履行、采取补救措施或赔偿损失等违约责任。""",
+**第五百七十七条** 当事人一方不履行合同义务，应当承担继续履行、赔偿损失等违约责任。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             },
             "劳动": {
@@ -53,156 +42,193 @@ class NationalLawDatabase:
 **第十九条** 试用期最长不得超过六个月。
 **第四十七条** 经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资。""",
                 "url": "https://flk.npc.gov.cn/detail/劳动合同法"
+            },
+            "侵权": {
+                "title": "中华人民共和国民法典·侵权责任编",
+                "content": """**第一千一百六十五条** 行为人因过错侵害他人民事权益造成损害的，应当承担侵权责任。""",
+                "url": "https://flk.npc.gov.cn/detail/民法典"
+            },
+            "继承": {
+                "title": "中华人民共和国民法典·继承编",
+                "content": """**第一千一百二十七条** 遗产按照下列顺序继承：
+第一顺序：配偶、子女、父母；
+第二顺序：兄弟姐妹、祖父母、外祖父母。""",
+                "url": "https://flk.npc.gov.cn/detail/民法典"
             }
         }
 
     def search_laws(self, keyword: str) -> Dict:
-        """搜索法律法规（优先匹配预设库）"""
-        keyword = keyword.lower()
-        matched_laws = []
+        """搜索法律法规（优先预设库）"""
+        matched = []
+        kw_lower = keyword.lower()
         for key, law in self.law_summaries.items():
-            if key in keyword or any(word in keyword for word in key.split("、")):
-                matched_laws.append(law)
-        if matched_laws:
-            return matched_laws[0]
-        return {"title": "未找到匹配法条", "content": "暂无相关法律条文", "url": self.base_url}
+            if key in kw_lower:
+                matched.append(law)
+        if not matched:
+            return {"success": False, "list": []}
+        return {"success": True, "list": matched}
 
-# ===================== 腾讯云混元客户端（补全！） =====================
+# ===================== 混元客户端 =====================
 class HunyuanClient:
     def __init__(self, secret_id: str, secret_key: str, law_db: NationalLawDatabase):
+        self.cred = credential.Credential(secret_id, secret_key)
+        self.httpProfile = HttpProfile()
+        self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
+        self.clientProfile = ClientProfile()
+        self.clientProfile.httpProfile = self.httpProfile
+        self.client = hunyuan_client.HunyuanClient(self.cred, "ap-beijing", self.clientProfile)
         self.law_db = law_db
-        # 初始化腾讯云SDK
-        cred = credential.Credential(secret_id, secret_key)
-        httpProfile = HttpProfile()
-        httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
-        httpProfile.reqTimeout = 60  # 关键：加长超时（Streamlit Cloud网络慢）
 
-        clientProfile = ClientProfile()
-        clientProfile.httpProfile = httpProfile
-        self.client = hunyuan_client.HunyuanClient(cred, "ap-beijing", clientProfile)
-
-    def chat_with_history(self, history: List[Dict], prompt: str) -> str:
+    def chat_with_history(self, messages: List[Dict], system_prompt: str) -> str:
         try:
-            # 1. 先检索本地法律库
-            law_info = self.law_db.search_laws(prompt)
-            law_content = f"\n\n📚 参考法条：\n【{law_info['title']}】\n{law_info['content']}\n🔗 原文：{law_info['url']}"
+            latest_user = ""
+            for m in reversed(messages):
+                if m["role"] == "user":
+                    latest_user = m["content"]
+                    break
 
-            # 2. 构建请求
+            law_results = self.law_db.search_laws(latest_user)
+            enhanced_system = system_prompt
+
+            if law_results.get("success") and law_results.get("list"):
+                context = "\n\n【参考法条】\n"
+                for law in law_results["list"][:2]:
+                    context += f"\n### {law['title']}\n{law['content']}\n"
+                    if law.get("url"):
+                        context += f"🔗 {law['url']}\n"
+                enhanced_system += context
+
+            full_messages = [{"Role": "system", "Content": enhanced_system}]
+            for msg in messages:
+                role = "assistant" if msg["role"] == "assistant" else "user"
+                full_messages.append({"Role": role, "Content": msg["content"]})
+
             req = models.ChatCompletionsRequest()
-            messages = []
-            # 加入历史对话
-            for msg in history:
-                messages.append({"Role": msg["role"], "Content": msg["content"]})
-            # 加入当前系统提示+用户问题
-            messages.append({"Role": "user", "Content": f"{prompt}\n请结合以下法律回答：{law_content}"})
-            
-            req.Messages = messages
             req.Model = "hunyuan-standard"
+            req.Messages = full_messages
             req.Temperature = 0.7
 
-            # 3. 调用混元API
             resp = self.client.ChatCompletions(req)
-            resp_dict = json.loads(resp.to_json_string())
-            answer = resp_dict["Choices"][0]["Message"]["Content"]
-            return answer + law_info
+            return resp.Choices[0].Message.Content
 
         except Exception as e:
-            # 降级：只返回本地知识库
-            st.warning(f"⚠️ AI服务暂时不可用（{str(e)}），以下为法律知识库内容")
-            law = self.law_db.search_laws(prompt)
-            return f"【{law['title']}】\n{law['content']}\n🔗 {law['url']}"
+            # 降级逻辑（修复字典拼接错误）
+            fallback = f"❌ AI服务暂时不可用（{str(e)}）\n\n【参考法条】\n"
+            law_results = self.law_db.search_laws(latest_user)
+            if law_results.get("success") and law_results.get("list"):
+                for law in law_results["list"][:2]:
+                    fallback += f"\n### {law['title']}\n{law['content']}\n"
+                    if law.get("url"):
+                        fallback += f"🔗 {law['url']}\n"
+            return fallback
 
-# ===================== 侧边栏 =====================
-def render_sidebar():
-    with st.sidebar:
-        st.title("⚖️ 司法辅助系统")
-        st.markdown("---")
-        # 模式切换
-        mode = st.radio("选择功能模式", ["法律解释", "节点提醒", "智能对话", "文书生成"],
-                        index=["法律解释", "节点提醒", "智能对话", "文书生成"].index(st.session_state.mode))
-        if mode != st.session_state.mode:
-            st.session_state.mode = mode
-            st.rerun()
-        st.markdown(f"**当前：{st.session_state.mode}**")
-        st.markdown("---")
-        if st.button("🗑️ 清空对话"):
-            st.session_state.messages = []
-            st.rerun()
-        with st.expander("ℹ️ 帮助"):
-            st.markdown("- 自动匹配国家法律法规数据库\n- 支持多轮记忆\n- 数据来源：全国人大官网")
-        st.caption("flk.npc.gov.cn")
+# ===================== Streamlit 页面初始化 =====================
+st.set_page_config(page_title="司法流程辅助系统", page_icon="⚖️", layout="wide")
+st.title("⚖️ 司法流程辅助与节点提醒系统")
 
-# ===================== 主程序 =====================
-def main():
-    render_sidebar()
-    # 初始化数据库
-    if not st.session_state.law_db:
-        st.session_state.law_db = NationalLawDatabase()
+# 初始化状态
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "hy_client" not in st.session_state:
+    st.session_state.hy_client = None
+if "law_db" not in st.session_state:
+    st.session_state.law_db = NationalLawDatabase()
+if "mode" not in st.session_state:
+    st.session_state.mode = "智能对话"
 
-    # 登录（SecretId/Key）
-    if not st.session_state.hy_client:
-        st.markdown("## 🔐 登录（腾讯云混元）")
-        with st.form("login"):
-            secret_id = st.text_input("SecretId", type="password")
-            secret_key = st.text_input("SecretKey", type="password")
-            if st.form_submit_button("✅ 登录"):
-                if not secret_id or not secret_key:
-                    st.error("密钥不能为空")
-                else:
-                    with st.spinner("验证中..."):
-                        try:
-                            client = HunyuanClient(secret_id, secret_key, st.session_state.law_db)
-                            # 测试连接
-                            test = client.chat_with_history([], "回复‘正常’")
-                            st.session_state.hy_client = client
-                            st.success("登录成功！")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"登录失败：{str(e)}")
-        return
+# 侧边栏
+with st.sidebar:
+    st.markdown("## 🛠️ 功能模式")
+    mode = st.radio(
+        "选择模式",
+        ["智能对话", "法律解释", "节点提醒", "文书生成"],
+        index=["智能对话", "法律解释", "节点提醒", "文书生成"].index(st.session_state.mode)
+    )
+    if mode != st.session_state.mode:
+        st.session_state.mode = mode
+        st.rerun()
+    st.markdown(f"**当前模式：** {st.session_state.mode}")
+    st.markdown("---")
+    if st.button("🗑️ 清空对话"):
+        st.session_state.messages = []
+        st.rerun()
+    with st.expander("ℹ️ 使用帮助"):
+        st.markdown("""
+        - **法律解释**：解读法条，匹配法律知识库
+        - **节点提醒**：分析流程节点、时效
+        - **智能对话**：日常法律咨询
+        - **文书生成**：生成法律文书草稿
+        - 系统自动检索国家法律法规数据库
+        """)
+    st.caption("数据来源：国家法律法规数据库")
 
-    # 欢迎语
-    if not st.session_state.messages:
-        welcome = """您好！欢迎使用司法流程辅助系统。
+# ===================== 登录 =====================
+if st.session_state.hy_client is None:
+    st.markdown("## 🔐 系统登录")
+    with st.form("login_form"):
+        secret_id = st.text_input("SecretId", type="password")
+        secret_key = st.text_input("SecretKey", type="password")
+        submitted = st.form_submit_button("🔑 登录")
+        if submitted:
+            if not secret_id or not secret_key:
+                st.error("密钥不能为空")
+            else:
+                with st.spinner("验证中..."):
+                    try:
+                        client = HunyuanClient(secret_id, secret_key, st.session_state.law_db)
+                        test_resp = client.chat_with_history([], "你只需回复'正常'")
+                        st.session_state.hy_client = client
+                        st.success("登录成功！")
+                        time.sleep(0.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"登录失败：{str(e)}")
+    st.stop()
+
+# ===================== 聊天界面 =====================
+if not st.session_state.messages:
+    welcome = """您好！欢迎使用司法流程辅助系统。
+
 **🏛️ 数据来源：国家法律法规数据库（全国人大官网）**
-- 自动匹配相关法条 + 官方原文链接
+
+**💡 使用提示：**
+- 提问自动匹配相关法律条文
+- 提供官方原文链接
 - 支持多轮对话记忆
-请问有什么可以帮您？"""
-        st.session_state.messages.append({"role": "assistant", "content": welcome})
 
-    # 显示消息
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+请问有什么可以帮您的吗？"""
+    st.session_state.messages.append({"role": "assistant", "content": welcome})
 
-    # 输入框占位符
-    placeholder = {
-        "法律解释": "例如：请解释离婚冷静期规定...",
-        "节点提醒": "例如：劳动仲裁流程与时效？",
-        "智能对话": "请输入法律问题...",
-        "文书生成": "例如：生成房屋租赁合同..."
-    }.get(st.session_state.mode, "请输入问题...")
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-    # 对话逻辑
-    if prompt := st.chat_input(placeholder):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+# 输入框
+placeholder_map = {
+    "法律解释": "例如：请解释一下民法典关于离婚冷静期的规定...",
+    "节点提醒": "例如：劳动仲裁的流程和时间节点有哪些？",
+    "智能对话": "请输入您的法律问题...",
+    "文书生成": "例如：帮我生成一份标准的房屋租赁合同..."
+}
+input_placeholder = placeholder_map.get(st.session_state.mode, "请输入...")
 
-        # 系统提示
-        system_prompt = {
-            "法律解释": "通俗解读法律，优先引用官方条文",
-            "节点提醒": "分析流程、时效、关键节点",
-            "智能对话": "专业、通俗解答法律问题",
-            "文书生成": "生成规范法律文书草稿"
-        }.get(st.session_state.mode, "专业解答法律问题")
+if prompt := st.chat_input(input_placeholder):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            with st.spinner("🔍 检索法条中..."):
-                resp = st.session_state.hy_client.chat_with_history(st.session_state.messages[:-1],
-                                                                    f"{system_prompt}\n用户问题：{prompt}")
-                st.markdown(resp)
-                st.session_state.messages.append({"role": "assistant", "content": resp})
+    system_prompts = {
+        "法律解释": "你是专业法律科普助手，通俗易懂解读法律，优先引用官方法条。",
+        "节点提醒": "你是专业流程助手，分析案件节点、时效，清晰列出重要提醒。",
+        "智能对话": "你是专业法律顾问，用通俗语言解答法律问题。",
+        "文书生成": "你是法律文书助手，生成格式规范的法律文书。"
+    }
+    system_prompt = system_prompts.get(st.session_state.mode, system_prompts["智能对话"])
 
-if __name__ == "__main__":
-    main()
+    with st.chat_message("assistant"):
+        with st.spinner("🔍 正在检索法律知识库..."):
+            response = st.session_state.hy_client.chat_with_history(
+                st.session_state.messages[:-1], system_prompt
+            )
+            st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})

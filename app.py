@@ -23,7 +23,7 @@ class NationalLawDatabase:
         self.base_url = "https://flk.npc.gov.cn"
         self.search_url = "https://flk.npc.gov.cn/api/search"
         
-        # 预设的法律知识库（当API无法访问时使用）
+        # 预设的法律知识库
         self.law_summaries = {
             "离婚": {
                 "title": "中华人民共和国民法典·婚姻家庭编",
@@ -99,7 +99,6 @@ class NationalLawDatabase:
     
     def search_laws(self, keyword: str, law_type: str = "all", page: int = 1, page_size: int = 10) -> Dict:
         """搜索法律法规"""
-        # 从预设知识库中匹配
         matched_laws = self._search_from_preset(keyword)
         
         if matched_laws:
@@ -111,7 +110,6 @@ class NationalLawDatabase:
                 "source": "法律知识库"
             }
         
-        # 尝试访问官网API
         try:
             params = {
                 "keyword": keyword,
@@ -249,6 +247,21 @@ class HunyuanClient:
         """搜索国家法律法规数据库"""
         return self.national_law_db.search_laws(keyword)
 
+    def _clean_messages(self, messages):
+        """清理消息格式，确保符合API要求"""
+        cleaned = []
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            
+            # 只保留 user、assistant、system 角色
+            if role in ["user", "assistant", "system"] and content:
+                # 转换角色名称为API要求的格式
+                api_role = "assistant" if role == "assistant" else role
+                cleaned.append({"Role": api_role, "Content": content})
+        
+        return cleaned
+
     def chat(self, prompt, system_prompt):
         """通用对话接口"""
         try:
@@ -278,10 +291,13 @@ class HunyuanClient:
                 search_url = self.national_law_db.get_recommended_link(prompt)
                 enhanced_system_prompt += f"\n\n如需查询更多相关法律条文，请访问国家法律法规数据库：{search_url}"
             
-            req.Messages = [
+            # 构建消息 - 只包含 system 和 user
+            messages = [
                 {"Role": "system", "Content": enhanced_system_prompt},
                 {"Role": "user", "Content": prompt}
             ]
+            
+            req.Messages = messages
             req.Temperature = 0.7
             resp = self.client.ChatCompletions(req)
             return resp.Choices[0].Message.Content
@@ -289,7 +305,7 @@ class HunyuanClient:
             return f"❌ AI服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
     def chat_with_history(self, messages, system_prompt):
-        """支持多轮对话"""
+        """支持多轮对话 - 修复版本"""
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
@@ -315,18 +331,39 @@ class HunyuanClient:
                         law_context += f"\n🔗 查看原文：{law.get('url')}\n"
                 enhanced_system_prompt += law_context
             
-            # 构建完整消息列表
+            # 构建消息列表 - 关键修复：确保格式正确
             full_messages = [{"Role": "system", "Content": enhanced_system_prompt}]
+            
+            # 过滤并添加历史消息，只保留 user 和 assistant
             for msg in messages:
-                role = "assistant" if msg["role"] == "assistant" else "user"
-                full_messages.append({"Role": role, "Content": msg["content"]})
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                
+                if role == "user" and content:
+                    full_messages.append({"Role": "user", "Content": content})
+                elif role == "assistant" and content:
+                    full_messages.append({"Role": "assistant", "Content": content})
+            
+            # 确保最后一条消息是 user（API要求）
+            if full_messages and full_messages[-1]["Role"] != "user":
+                # 如果最后不是 user，添加一个默认的 user 消息
+                full_messages.append({"Role": "user", "Content": latest_user_msg or "请继续"})
             
             req.Messages = full_messages
             req.Temperature = 0.7
             resp = self.client.ChatCompletions(req)
             return resp.Choices[0].Message.Content
+            
         except Exception as e:
-            return f"❌ 请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
+            error_msg = str(e)
+            # 如果还是出错，降级到简单对话
+            if "InvalidParameter" in error_msg:
+                try:
+                    # 降级方案：只发送当前问题
+                    return self.chat(latest_user_msg if 'latest_user_msg' in locals() else "", system_prompt)
+                except:
+                    pass
+            return f"❌ 请求失败：{error_msg}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
     def generate_document(self, doc_type: str, case_info: Dict) -> str:
         """生成法律文书"""
@@ -576,7 +613,6 @@ if st.session_state.mode == "文书生成":
                     st.markdown("### 📝 生成的起诉状")
                     st.markdown(result)
                     
-                    # 下载按钮
                     st.download_button(
                         label="📥 下载起诉状",
                         data=result,
@@ -606,6 +642,33 @@ if st.session_state.mode == "文书生成":
                         label="📥 下载答辩状",
                         data=result,
                         file_name=f"答辩状_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                        mime="text/markdown"
+                    )
+        
+        elif doc_type == "上诉状":
+            appellant = st.text_area("上诉人信息", placeholder="姓名、性别、身份证号等")
+            appellee = st.text_area("被上诉人信息", placeholder="姓名、性别、身份证号等")
+            requests = st.text_area("上诉请求", placeholder="请列出上诉请求")
+            reasons = st.text_area("上诉理由", placeholder="请详细说明上诉理由")
+            
+            submitted = st.form_submit_button("生成上诉状", use_container_width=True)
+            
+            if submitted:
+                with st.spinner("正在生成上诉状..."):
+                    case_info = {
+                        "appellant": appellant,
+                        "appellee": appellee,
+                        "requests": requests,
+                        "reasons": reasons
+                    }
+                    result = st.session_state.hy_client.generate_document("上诉状", case_info)
+                    st.markdown("### 📝 生成的上诉状")
+                    st.markdown(result)
+                    
+                    st.download_button(
+                        label="📥 下载上诉状",
+                        data=result,
+                        file_name=f"上诉状_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
                         mime="text/markdown"
                     )
         
@@ -689,6 +752,7 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
+                # 传入完整的历史消息（不包括刚添加的assistant回复）
                 history = st.session_state.messages[:-1]
                 response = st.session_state.hy_client.chat_with_history(history, system_prompt)
                 

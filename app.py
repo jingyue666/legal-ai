@@ -523,6 +523,9 @@ def init_session_state():
         st.session_state.mode = "法律解释"
     if "law_db" not in st.session_state:
         st.session_state.law_db = LocalLawDatabase()
+    # 新增：自动触发标志
+    if "auto_trigger_mode" not in st.session_state:
+        st.session_state.auto_trigger_mode = None
 
 init_session_state()
 
@@ -572,6 +575,9 @@ with st.sidebar:
         with col:
             if st.button(mode_label, key=f"mode_{mode_key}"):
                 st.session_state.mode = mode_key
+                # 添加标志：如果是智能对话或法律解释模式，标记需要自动发送消息
+                if mode_key in ["智能对话", "法律解释"]:
+                    st.session_state.auto_trigger_mode = mode_key
                 st.rerun()
     
     st.markdown(f"**当前模式：** `{st.session_state.mode}`")
@@ -787,6 +793,56 @@ if not st.session_state.messages:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+
+# ========== 新增：自动触发逻辑 ==========
+# 处理模式切换时的自动消息发送
+if st.session_state.auto_trigger_mode is not None:
+    current_trigger_mode = st.session_state.auto_trigger_mode
+    # 清除标志，避免重复触发
+    st.session_state.auto_trigger_mode = None
+    
+    # 根据模式生成自动消息
+    if current_trigger_mode == "智能对话":
+        auto_message = "你好！我现在切换到智能对话模式了。在这个模式下，你可以像和朋友聊天一样向我咨询任何法律问题，我会用通俗易懂的语言为你解答。请问有什么法律问题需要我帮助吗？"
+    elif current_trigger_mode == "法律解释":
+        auto_message = "你好！我现在切换到法律解释模式了。在这个模式下，我会为你详细解读法律条文，引用官方法规，帮助你准确理解法律规定。请问你想了解哪方面的法律条文呢？"
+    else:
+        auto_message = None
+    
+    if auto_message:
+        # 添加用户消息（自动发送）
+        st.session_state.messages.append({"role": "user", "content": auto_message})
+        
+        # 重新显示用户消息
+        with st.chat_message("user"):
+            st.markdown(auto_message)
+        
+        # 系统提示词
+        system_prompts = {
+            "法律解释": "你是专业法律科普助手，请结合国家法律法规数据库的官方条文，通俗易懂地解读法律内容。回答中请注明法律条文来源，必要时提供官方链接。",
+            "智能对话": "你是专业的法律顾问，请结合国家法律法规，用通俗易懂的语言解答法律问题。优先引用官方法律条文。",
+        }
+        
+        system_prompt = system_prompts.get(current_trigger_mode, system_prompts["智能对话"])
+        
+        # 获取AI回复
+        with st.chat_message("assistant"):
+            with st.spinner("🔍 正在检索国家法律法规数据库..."):
+                try:
+                    # 传入完整的历史消息（不包括刚添加的assistant回复）
+                    history = st.session_state.messages[:-1]
+                    response = st.session_state.hy_client.chat_with_history(history, system_prompt)
+                    
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    
+                except Exception as e:
+                    error_msg = f"❌ 请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询相关法律条文。"
+                    st.error(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+        
+        # 触发rerun以确保UI正确更新
+        st.rerun()
 
 # 输入框
 prompt = st.chat_input("请输入您的法律问题，系统将自动检索国家法律法规数据库...")

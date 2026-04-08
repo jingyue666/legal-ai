@@ -254,9 +254,7 @@ class HunyuanClient:
             role = msg.get("role", "")
             content = msg.get("content", "")
             
-            # 只保留 user、assistant、system 角色
             if role in ["user", "assistant", "system"] and content:
-                # 转换角色名称为API要求的格式
                 api_role = "assistant" if role == "assistant" else role
                 cleaned.append({"Role": api_role, "Content": content})
         
@@ -268,12 +266,10 @@ class HunyuanClient:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
-            # 搜索国家法律法规数据库
             national_laws = self.national_law_db.search_laws(prompt)
             
             enhanced_system_prompt = system_prompt
             
-            # 添加国家法律法规数据库结果
             if national_laws.get("success") and national_laws.get("list"):
                 law_context = "\n\n**【国家法律法规数据库检索结果】**\n"
                 law_context += f"🔍 搜索关键词：{prompt}\n"
@@ -291,7 +287,6 @@ class HunyuanClient:
                 search_url = self.national_law_db.get_recommended_link(prompt)
                 enhanced_system_prompt += f"\n\n如需查询更多相关法律条文，请访问国家法律法规数据库：{search_url}"
             
-            # 构建消息 - 只包含 system 和 user
             messages = [
                 {"Role": "system", "Content": enhanced_system_prompt},
                 {"Role": "user", "Content": prompt}
@@ -305,19 +300,17 @@ class HunyuanClient:
             return f"❌ AI服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
     def chat_with_history(self, messages, system_prompt):
-        """支持多轮对话 - 修复版本"""
+        """支持多轮对话"""
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
-            # 获取最新的用户消息
             latest_user_msg = ""
             for msg in reversed(messages):
                 if msg.get("role") == "user":
                     latest_user_msg = msg["content"]
                     break
             
-            # 搜索国家法律法规数据库
             national_laws = self.national_law_db.search_laws(latest_user_msg)
             
             enhanced_system_prompt = system_prompt
@@ -331,10 +324,8 @@ class HunyuanClient:
                         law_context += f"\n🔗 查看原文：{law.get('url')}\n"
                 enhanced_system_prompt += law_context
             
-            # 构建消息列表 - 关键修复：确保格式正确
             full_messages = [{"Role": "system", "Content": enhanced_system_prompt}]
             
-            # 过滤并添加历史消息，只保留 user 和 assistant
             for msg in messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
@@ -344,9 +335,7 @@ class HunyuanClient:
                 elif role == "assistant" and content:
                     full_messages.append({"Role": "assistant", "Content": content})
             
-            # 确保最后一条消息是 user（API要求）
             if full_messages and full_messages[-1]["Role"] != "user":
-                # 如果最后不是 user，添加一个默认的 user 消息
                 full_messages.append({"Role": "user", "Content": latest_user_msg or "请继续"})
             
             req.Messages = full_messages
@@ -356,10 +345,8 @@ class HunyuanClient:
             
         except Exception as e:
             error_msg = str(e)
-            # 如果还是出错，降级到简单对话
             if "InvalidParameter" in error_msg:
                 try:
-                    # 降级方案：只发送当前问题
                     return self.chat(latest_user_msg if 'latest_user_msg' in locals() else "", system_prompt)
                 except:
                     pass
@@ -736,28 +723,7 @@ if st.session_state.mode == "文书生成":
     st.stop()
 
 # ===================== 主聊天区域 =====================
-# 显示欢迎消息
-# ===================== 主聊天区域 =====================
-# 显示欢迎消息 - 修改为新的开场白
-if not st.session_state.messages:
-    welcome_msg = """当然可以！如果您有任何具体的法律问题或需要了解某个法律条文，请告诉我，我会尽力为您提供详细的信息和解释。
-
-例如，如果您想了解关于离婚的具体规定，我可以为您解读《中华人民共和国民法典》中的相关条款：
-
-📜 **中华人民共和国民法典·婚姻家庭编**
-
-**第一千零七十六条** 夫妻双方自愿离婚的，应当签订书面离婚协议，并亲自到婚姻登记机关申请离婚登记。离婚协议应当载明双方自愿离婚的意思表示和对子女抚养、财产以及债务处理等事项协商一致的意见。
-
-**第一千零七十九条** 夫妻一方要求离婚的，可以由有关组织进行调解或者直接向人民法院提起离婚诉讼。人民法院审理离婚案件，应当进行调解；如果感情确已破裂，调解无效的，应当准予离婚。有下列情形之一，调解无效的，应当准予离婚：
-(一)重婚或者与他人同居；
-(二)实施家庭暴力或者虐待、遗弃家庭成员；
-(三)有赌博、吸毒等恶习屡教不改；
-(四)因感情不和分居满二年；
-(五)其他导致夫妻感情破裂的情形。
-
-如果您有其他具体的法律问题，请随时告诉我！"""
-    
-    st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
+# 不再自动显示欢迎消息，等待用户输入
 
 # 显示对话历史
 for msg in st.session_state.messages:
@@ -786,7 +752,6 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
-                # 传入完整的历史消息（不包括刚添加的assistant回复）
                 history = st.session_state.messages[:-1]
                 response = st.session_state.hy_client.chat_with_history(history, system_prompt)
                 

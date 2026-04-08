@@ -1,341 +1,157 @@
 import streamlit as st
-import time
+import requests
 import json
-import os
-import re
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-
-# 导入腾讯云SDK
+import time
+from typing import Dict, List, Optional
 from tencentcloud.common import credential
 from tencentcloud.common.profile.client_profile import ClientProfile
 from tencentcloud.common.profile.http_profile import HttpProfile
 from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
 
-# 导入requests
-import requests
-
-# ===================== 国家法律法规数据库检索模块 =====================
-class NationalLawDatabase:
-    """国家法律法规数据库检索类"""
+# ===================== 本地法律数据库 =====================
+class LocalLawDatabase:
+    """本地法律数据库，包含常用法律条文"""
     
     def __init__(self):
-        self.base_url = "https://flk.npc.gov.cn"
-        self.search_url = "https://flk.npc.gov.cn/api/search"
-        
-        # 预设的法律知识库
-        self.law_summaries = {
-            "离婚": {
-                "title": "中华人民共和国民法典·婚姻家庭编",
-                "content": """**第一千零七十六条** 夫妻双方自愿离婚的，应当签订书面离婚协议，并亲自到婚姻登记机关申请离婚登记。
-离婚协议应当载明双方自愿离婚的意思表示和对子女抚养、财产以及债务处理等事项协商一致的意见。
-
-**第一千零七十九条** 夫妻一方要求离婚的，可以由有关组织进行调解或者直接向人民法院提起离婚诉讼。
-人民法院审理离婚案件，应当进行调解；如果感情确已破裂，调解无效的，应当准予离婚。
-有下列情形之一，调解无效的，应当准予离婚：
-(一)重婚或者与他人同居；
-(二)实施家庭暴力或者虐待、遗弃家庭成员；
-(三)有赌博、吸毒等恶习屡教不改；
-(四)因感情不和分居满二年；
-(五)其他导致夫妻感情破裂的情形。""",
-                "url": "https://flk.npc.gov.cn/detail/民法典"
+        self.laws = {
+            "民法典": {
+                "name": "中华人民共和国民法典",
+                "url": "https://flk.npc.gov.cn/detail2.html?ZmY4MDgwODE3MzI3MjA1MzAxNzM0NzU0ODA0MjI0MDE",
+                "articles": {
+                    "侵权责任": "第1165条：行为人因过错侵害他人民事权益造成损害的，应当承担侵权责任。",
+                    "合同违约": "第577条：当事人一方不履行合同义务或者履行合同义务不符合约定的，应当承担继续履行、采取补救措施或者赔偿损失等违约责任。",
+                    "离婚冷静期": "第1077条：自婚姻登记机关收到离婚登记申请之日起三十日内，任何一方不愿意离婚的，可以向婚姻登记机关撤回离婚登记申请。"
+                }
             },
-            "结婚": {
-                "title": "中华人民共和国民法典·婚姻家庭编",
-                "content": """**第一千零四十六条** 结婚应当男女双方完全自愿，禁止任何一方对另一方加以强迫，禁止任何组织或者个人加以干涉。
-
-**第一千零四十七条** 结婚年龄，男不得早于二十二周岁，女不得早于二十周岁。
-
-**第一千零四十八条** 直系血亲或者三代以内的旁系血亲禁止结婚。
-
-**第一千零四十九条** 要求结婚的男女双方应当亲自到婚姻登记机关申请结婚登记。符合本法规定的，予以登记，发给结婚证。完成结婚登记，即确立婚姻关系。""",
-                "url": "https://flk.npc.gov.cn/detail/民法典"
+            "劳动合同法": {
+                "name": "中华人民共和国劳动合同法",
+                "url": "https://flk.npc.gov.cn/detail2.html?ZmY4MDgwODE3MjY4YmI2MzAxNzI4YzQ5YzA0ODQwNmM",
+                "articles": {
+                    "试用期": "第19条：劳动合同期限三个月以上不满一年的，试用期不得超过一个月；劳动合同期限一年以上不满三年的，试用期不得超过二个月；三年以上固定期限和无固定期限的劳动合同，试用期不得超过六个月。",
+                    "经济补偿": "第47条：经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资。六个月以上不满一年的，按一年计算；不满六个月的，向劳动者支付半个月工资的经济补偿。"
+                }
             },
-            "合同": {
-                "title": "中华人民共和国民法典·合同编",
-                "content": """**第四百六十九条** 当事人订立合同，可以采用书面形式、口头形式或者其他形式。
-
-**第五百七十七条** 当事人一方不履行合同义务或者履行合同义务不符合约定的，应当承担继续履行、采取补救措施或者赔偿损失等违约责任。
-
-**第五百七十八条** 当事人一方明确表示或者以自己的行为表明不履行合同义务的，对方可以在履行期限届满前请求其承担违约责任。
-
-**第五百八十四条** 当事人一方不履行合同义务或者履行合同义务不符合约定，造成对方损失的，损失赔偿额应当相当于因违约所造成的损失，包括合同履行后可以获得的利益。""",
-                "url": "https://flk.npc.gov.cn/detail/民法典"
+            "消费者权益保护法": {
+                "name": "中华人民共和国消费者权益保护法",
+                "url": "https://flk.npc.gov.cn/detail2.html?ZmY4MDgwODE3MjY4YmI2MzAxNzI4YzUyYzA0ODQwYjk",
+                "articles": {
+                    "退一赔三": "第55条：经营者提供商品或者服务有欺诈行为的，应当按照消费者的要求增加赔偿其受到的损失，增加赔偿的金额为消费者购买商品的价款或者接受服务的费用的三倍；增加赔偿的金额不足五百元的，为五百元。"
+                }
             },
-            "劳动": {
-                "title": "中华人民共和国劳动合同法",
-                "content": """**第十条** 建立劳动关系，应当订立书面劳动合同。
-已建立劳动关系，未同时订立书面劳动合同的，应当自用工之日起一个月内订立书面劳动合同。
-
-**第十九条** 劳动合同期限三个月以上不满一年的，试用期不得超过一个月；劳动合同期限一年以上不满三年的，试用期不得超过二个月；三年以上固定期限和无固定期限的劳动合同，试用期不得超过六个月。
-
-**第四十七条** 经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资。六个月以上不满一年的，按一年计算；不满六个月的，向劳动者支付半个月工资的经济补偿。
-
-**第八十七条** 用人单位违反本法规定解除或者终止劳动合同的，应当依照本法第四十七条规定的经济补偿标准的二倍向劳动者支付赔偿金。""",
-                "url": "https://flk.npc.gov.cn/detail/劳动合同法"
+            "道路交通安全法": {
+                "name": "中华人民共和国道路交通安全法",
+                "url": "https://flk.npc.gov.cn/detail2.html?ZmY4MDgwODE3MjY4YmI2MzAxNzI4YzVhMTA0ODQwYjM",
+                "articles": {}
             },
-            "侵权": {
-                "title": "中华人民共和国民法典·侵权责任编",
-                "content": """**第一千一百六十五条** 行为人因过错侵害他人民事权益造成损害的，应当承担侵权责任。
-依照法律规定推定行为人有过错，其不能证明自己没有过错的，应当承担侵权责任。
-
-**第一千一百七十九条** 侵害他人造成人身损害的，应当赔偿医疗费、护理费、交通费、营养费、住院伙食补助费等为治疗和康复支出的合理费用，以及因误工减少的收入。
-
-**第一千一百八十三条** 侵害自然人人身权益造成严重精神损害的，被侵权人有权请求精神损害赔偿。""",
-                "url": "https://flk.npc.gov.cn/detail/民法典"
-            },
-            "继承": {
-                "title": "中华人民共和国民法典·继承编",
-                "content": """**第一千一百二十七条** 遗产按照下列顺序继承：
-(一)第一顺序：配偶、子女、父母；
-(二)第二顺序：兄弟姐妹、祖父母、外祖父母。
-继承开始后，由第一顺序继承人继承，第二顺序继承人不继承；没有第一顺序继承人继承的，由第二顺序继承人继承。
-
-**第一千一百三十条** 同一顺序继承人继承遗产的份额，一般应当均等。
-对生活有特殊困难又缺乏劳动能力的继承人，分配遗产时，应当予以照顾。""",
-                "url": "https://flk.npc.gov.cn/detail/民法典"
+            "刑法": {
+                "name": "中华人民共和国刑法",
+                "url": "https://flk.npc.gov.cn/detail2.html?ZmY4MDgwODE3MjY4YmI2MzAxNzI4YzY1NjA0ODQwYjc",
+                "articles": {}
             }
         }
     
-    def search_laws(self, keyword: str, law_type: str = "all", page: int = 1, page_size: int = 10) -> Dict:
-        """搜索法律法规"""
-        matched_laws = self._search_from_preset(keyword)
-        
-        if matched_laws:# 优先从预设知识库搜索
-            return {
-                "success": True,
-                "total": len(matched_laws),
-                "list": matched_laws,
-                "keyword": keyword,
-                "source": "法律知识库"
-            }
-        
-        try:# 从国家法律法规数据库搜索
-            params = {
-                "keyword": keyword,
-                "page": page,
-                "pageSize": page_size,
-            }
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            
-            response = requests.get(self.search_url, params=params, headers=headers, timeout=5)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("list"):
-                    return {
-                        "success": True,
-                        "total": data.get("total", 0),
-                        "list": self._parse_search_results(data.get("list", [])),
-                        "keyword": keyword,
-                        "source": "国家法律法规数据库"
-                    }
-        except Exception:
-            pass
-        
-        return self._get_empty_result(keyword)
-    
-    def _search_from_preset(self, keyword: str) -> List:# 从预设知识库搜索
-        """从预设知识库搜索"""
+    def search_law(self, query: str) -> List[Dict]:
+        """根据关键词搜索相关法律条文"""
         results = []
-        keyword_lower = keyword.lower()
+        query_lower = query.lower()
         
-        for key, law in self.law_summaries.items():
-            if key in keyword_lower or keyword_lower in key:
+        for law_key, law_info in self.laws.items():
+            if law_key in query or law_key.lower() in query_lower:
                 results.append({
-                    "id": key,
-                    "title": law["title"],
-                    "content": law["content"],
-                    "law_type": "法律",
-                    "pub_date": "",
-                    "pub_org": "全国人民代表大会",
-                    "validity": "有效",
-                    "summary": law["content"][:200],
-                    "url": law.get("url", "https://flk.npc.gov.cn/")
+                    "law_name": law_info["name"],
+                    "url": law_info["url"],
+                    "type": "法律"
                 })
+            
+            for article_key, article_content in law_info["articles"].items():
+                if article_key in query or article_key.lower() in query_lower:
+                    results.append({
+                        "law_name": law_info["name"],
+                        "article": article_key,
+                        "content": article_content,
+                        "url": law_info["url"],
+                        "type": "条文"
+                    })
         
         return results
     
-    def _parse_search_results(self, results: List) -> List:# 解析国家法律法规数据库搜索结果
-        """解析搜索结果"""
-        parsed = []
-        for item in results:
-            parsed.append({
-                "id": item.get("id", ""),
-                "title": item.get("title", ""),
-                "law_type": item.get("type", ""),
-                "pub_date": item.get("pubDate", ""),
-                "pub_org": item.get("pubOrg", ""),
-                "validity": item.get("validity", ""),
-                "summary": item.get("summary", "")[:200] if item.get("summary") else "",
-                "url": f"https://flk.npc.gov.cn/detail/{item.get('id', '')}"
-            })
-        return parsed
-    
-    def _get_empty_result(self, keyword: str, error_msg: str = "") -> Dict:  # 返回空结果
-        """返回空结果"""
-        return {
-            "success": False,
-            "total": 0,
-            "list": [],
-            "keyword": keyword,
-            "message": f"请访问国家法律法规数据库查询：https://flk.npc.gov.cn/"
-        }
-    
-    def get_recommended_link(self, keyword: str) -> str:# 获取推荐查询链接
-        """获取推荐查询链接"""
-        return f"https://flk.npc.gov.cn/?keyword={keyword}"
+    def get_law_url(self, law_name: str) -> str:
+        """获取法律原文链接"""
+        for law_info in self.laws.values():
+            if law_info["name"] == law_name:
+                return law_info["url"]
+        return "https://flk.npc.gov.cn/"
 
-# ===================== 本地法律知识库 =====================
-class LocalLawDatabase:
-    """本地法律知识库"""
-    
-    def __init__(self, law_file="law_database.json"):
-        self.law_file = law_file
-        self.laws = {}
-        self.load_laws()
-    
-    def load_laws(self):
-        """从JSON文件加载法律知识"""
-        if os.path.exists(self.law_file):
-            try:
-                with open(self.law_file, 'r', encoding='utf-8') as f:
-                    self.laws = json.load(f)
-            except Exception:
-                self.create_default_laws()
-        else:
-            self.create_default_laws()
-            self.save_laws()
-    
-    def create_default_laws(self):
-        """创建默认法律库"""
-        self.laws = {
-            "民法典": {
-                "keywords": ["离婚", "结婚", "合同", "侵权", "继承", "物权"],
-                "content": "《中华人民共和国民法典》是新中国第一部以法典命名的法律，共7编、1260条。"
-            },
-            "劳动合同法": {
-                "keywords": ["劳动", "工资", "加班", "辞职", "辞退", "试用期"],
-                "content": "《中华人民共和国劳动合同法》是为了完善劳动合同制度，保护劳动者合法权益的法律。"
-            }
-        }
-    
-    def save_laws(self):
-        """保存法律库到JSON文件"""
-        try:
-            with open(self.law_file, 'w', encoding='utf-8') as f:
-                json.dump(self.laws, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception:
-            return False
-
-# ===================== 混元AI客户端 =====================
+# ===================== 腾讯混元客户端 =====================
 class HunyuanClient:
-    def __init__(self, secret_id, secret_key, law_db):# 初始化混元AI客户端
-        self.cred = credential.Credential(secret_id, secret_key)
-        self.httpProfile = HttpProfile()
-        self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
-        self.clientProfile = ClientProfile()
-        self.clientProfile.httpProfile = self.httpProfile
-        self.client = hunyuan_client.HunyuanClient(self.cred, "ap-beijing", self.clientProfile)
+    def __init__(self, secret_id: str, secret_key: str, law_db: LocalLawDatabase):
+        """初始化腾讯混元客户端"""
+        self.secret_id = secret_id
+        self.secret_key = secret_key
         self.law_db = law_db
-        self.national_law_db = NationalLawDatabase()
-
-    def search_national_laws(self, keyword: str) -> Dict:# 搜索国家法律法规数据库
-        """搜索国家法律法规数据库"""
-        return self.national_law_db.search_laws(keyword)
-
-    def _clean_messages(self, messages):# 清理消息格式
-        """清理消息格式，确保符合API要求"""
-        cleaned = []
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            
-            # 只保留 user、assistant、system 角色
-            if role in ["user", "assistant", "system"] and content:
-                # 转换角色名称为API要求的格式
-                api_role = "assistant" if role == "assistant" else role
-                cleaned.append({"Role": api_role, "Content": content})
         
-        return cleaned
-
-    def chat(self, prompt, system_prompt):
-        """通用对话接口"""
+        cred = credential.Credential(secret_id, secret_key)
+        httpProfile = HttpProfile()
+        httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
+        
+        clientProfile = ClientProfile()
+        clientProfile.httpProfile = httpProfile
+        
+        self.client = hunyuan_client.HunyuanClient(cred, "ap-guangzhou", clientProfile)
+    
+    def search_laws(self, query: str) -> str:
+        """搜索相关法律条文"""
+        results = self.law_db.search_law(query)
+        if results:
+            context = "\n\n".join([
+                f"【{r.get('law_name', '未知法律')}】\n{r.get('content', f'查看原文：{r.get(\"url\", \"\")}')}"
+                for r in results
+            ])
+            return f"\n\n📚 **相关法律条文**（来自国家法律法规数据库）：\n{context}\n\n🔗 详细查询请访问：https://flk.npc.gov.cn/"
+        return ""
+    
+    def chat(self, user_input: str, system_prompt: str = "") -> str:
+        """单轮对话"""
         try:
+            law_context = self.search_laws(user_input)
+            
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
-            # 搜索国家法律法规数据库
-            national_laws = self.national_law_db.search_laws(prompt)
+            messages = []
+            if system_prompt:
+                messages.append({"Role": "system", "Content": system_prompt})
             
-            enhanced_system_prompt = system_prompt
-            
-            # 添加国家法律法规数据库结果
-            if national_laws.get("success") and national_laws.get("list"):
-                law_context = "\n\n**【国家法律法规数据库检索结果】**\n"
-                law_context += f"🔍 搜索关键词：{prompt}\n"
-                law_context += f"📊 共找到 {national_laws.get('total', 0)} 条相关法规\n\n"
-                
-                for law in national_laws.get("list", [])[:3]:
-                    law_context += f"### 📜 {law.get('title', '未知标题')}\n"
-                    law_context += f"{law.get('content', law.get('summary', ''))}\n"
-                    if law.get('url'):
-                        law_context += f"\n🔗 查看原文：{law.get('url')}\n"
-                    law_context += "\n"
-                
-                enhanced_system_prompt += law_context + "\n请优先引用以上官方法律条文，给出专业、准确的回答。"
-            else:
-                search_url = self.national_law_db.get_recommended_link(prompt)
-                enhanced_system_prompt += f"\n\n如需查询更多相关法律条文，请访问国家法律法规数据库：{search_url}"
-            
-            # 构建消息 - 只包含 system 和 user
-            messages = [
-                {"Role": "system", "Content": enhanced_system_prompt},
-                {"Role": "user", "Content": prompt}
-            ]
+            full_prompt = user_input + law_context
+            messages.append({"Role": "user", "Content": full_prompt})
             
             req.Messages = messages
             req.Temperature = 0.7
+            
             resp = self.client.ChatCompletions(req)
             return resp.Choices[0].Message.Content
         except Exception as e:
-            return f"❌ AI服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
-
-    def chat_with_history(self, messages, system_prompt):
-        """支持多轮对话 - 修复版本"""
+            return f"❌ 请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询相关法律条文"
+    
+    def chat_with_history(self, history_messages: List[Dict], system_prompt: str = "") -> str:
+        """支持多轮对话的法律咨询"""
         try:
-            req = models.ChatCompletionsRequest()
-            req.Model = "hunyuan-standard"
+            # 构建消息列表
+            full_messages = []
             
-            # 获取最新的用户消息
+            # 添加系统提示词
+            if system_prompt:
+                full_messages.append({"Role": "system", "Content": system_prompt})
+            
+            # 获取最新的用户消息用于检索法律条文
             latest_user_msg = ""
-            for msg in reversed(messages):
+            for msg in reversed(history_messages):
                 if msg.get("role") == "user":
-                    latest_user_msg = msg["content"]
+                    latest_user_msg = msg.get("content", "")
                     break
             
-            # 搜索国家法律法规数据库
-            national_laws = self.national_law_db.search_laws(latest_user_msg)
-            
-            enhanced_system_prompt = system_prompt
-            
-            if national_laws.get("success") and national_laws.get("list"):
-                law_context = "\n\n**【国家法律法规数据库检索结果】**\n"
-                for law in national_laws.get("list", [])[:3]:
-                    law_context += f"\n### 📜 {law.get('title', '未知标题')}\n"
-                    law_context += f"{law.get('content', law.get('summary', ''))}\n"
-                    if law.get('url'):
-                        law_context += f"\n🔗 查看原文：{law.get('url')}\n"
-                enhanced_system_prompt += law_context
-            
-            # 构建消息列表 - 关键修复：确保格式正确
-            full_messages = [{"Role": "system", "Content": enhanced_system_prompt}]
-            
-            # 过滤并添加历史消息，只保留 user 和 assistant
-            for msg in messages:
+            # 添加对话历史
+            for msg in history_messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 
@@ -345,10 +161,15 @@ class HunyuanClient:
                     full_messages.append({"Role": "assistant", "Content": content})
             
             # 确保最后一条消息是user
-            if full_messages and full_messages[-1]["Role"] != "user":
+            if not full_messages:
+                # 如果没有历史消息，添加一个默认的用户消息
+                full_messages.append({"Role": "user", "Content": latest_user_msg or "请继续"})
+            elif full_messages[-1]["Role"] != "user":
                 # 如果最后不是 user，添加一个默认的 user 消息
                 full_messages.append({"Role": "user", "Content": latest_user_msg or "请继续"})
             
+            req = models.ChatCompletionsRequest()
+            req.Model = "hunyuan-standard"
             req.Messages = full_messages
             req.Temperature = 0.7
             resp = self.client.ChatCompletions(req)
@@ -497,6 +318,8 @@ def init_session_state():
         st.session_state.mode = "法律解释"
     if "law_db" not in st.session_state:
         st.session_state.law_db = LocalLawDatabase()
+    if "first_message_sent" not in st.session_state:
+        st.session_state.first_message_sent = False
 
 init_session_state()
 
@@ -735,11 +558,10 @@ if st.session_state.mode == "文书生成":
     
     st.stop()
 
-
 # ===================== 主聊天区域 =====================
+# 修复：只在没有消息时显示欢迎消息，但不清空用户输入
 if not st.session_state.messages:
-    welcome_msg = "如果您有任何具体的法律问题或需要了解某个法律条文，请告诉我，我会尽力为您提供详细的信息和解释。"
-    
+    welcome_msg = "您好！我是司法流程辅助系统，可以为您提供法律咨询、节点提醒和文书生成服务。请问有什么可以帮助您的？"
     st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
 
 # 显示对话历史
@@ -765,13 +587,12 @@ if prompt:
     
     system_prompt = system_prompts.get(st.session_state.mode, system_prompts["智能对话"])
     
-    # 获取AI回复
+    # 获取AI回复 - 修复：传入完整的历史消息（包括刚添加的用户消息）
     with st.chat_message("assistant"):
         with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
-                # 传入完整的历史消息（不包括刚添加的assistant回复）
-                history = st.session_state.messages[:-1]
-                response = st.session_state.hy_client.chat_with_history(history, system_prompt)
+                # 修复：传入所有历史消息，而不是排除最后一条
+                response = st.session_state.hy_client.chat_with_history(st.session_state.messages, system_prompt)
                 
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})

@@ -3,7 +3,7 @@ import time
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 # 导入腾讯云SDK
@@ -420,6 +420,35 @@ class HunyuanClient:
         except Exception as e:
             return f"❌ 文书生成失败：{str(e)}"
 
+    def process_node_reminder(self, case_type: str, case_details: str) -> str:
+        """处理节点提醒功能"""
+        try:
+            req = models.ChatCompletionsRequest()
+            req.Model = "hunyuan-standard"
+            
+            prompt = f"""请根据以下案件信息，分析并输出完整的法律流程节点和具体时间提醒：
+
+案件类型：{case_type}
+案件详情：{case_details}
+
+请按以下格式输出：
+1. 案件流程节点（按时间顺序列出每个关键节点）
+2. 每个节点的具体法律时效和时间限制
+3. 重要提醒事项（如证据保存、诉讼时效等）
+4. 建议的行动步骤
+
+请确保信息准确、实用。"""
+            
+            req.Messages = [
+                {"Role": "system", "Content": "你是专业的法律流程助手，请结合国家法律法规，分析案件的关键节点、法律时效、流程提醒。回答要清晰易懂，标注重要时间节点。"},
+                {"Role": "user", "Content": prompt}
+            ]
+            req.Temperature = 0.7
+            resp = self.client.ChatCompletions(req)
+            return resp.Choices[0].Message.Content
+        except Exception as e:
+            return f"❌ 节点提醒服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询相关法律流程。"
+
 # ===================== 页面配置 =====================
 st.set_page_config(
     page_title="司法流程辅助系统", 
@@ -455,7 +484,7 @@ st.markdown("""
 
 # 标题
 st.title("⚖️ 司法流程辅助与节点提醒系统")
-st.markdown("*连接国家法律法规数据库 | 智能法律咨询 | 多轮对话 | 文书生成*")
+st.markdown("*连接国家法律法规数据库 | 智能法律咨询 | 多轮对话 | 文书生成 | 节点提醒*")
 
 # ===================== 会话状态初始化 =====================
 def init_session_state():
@@ -536,7 +565,7 @@ with st.sidebar:
         st.markdown("""
         **功能介绍：**
         - 📚 **法律解释**：解读法律条文，匹配相关法条
-        - ⏰ **节点提醒**：分析案件流程节点，提醒法律时效
+        - ⏰ **节点提醒**：输入您的案件情况，获取法律流程节点和具体时间提醒
         - 💬 **智能对话**：日常法律咨询，通俗解释
         - 📄 **文书生成**：生成标准法律文书（起诉状、答辩状等）
         
@@ -561,7 +590,7 @@ if st.session_state.hy_client is None:
     with col2:
         with st.form("login_form"):
             st.markdown("### 腾讯云密钥验证")
-            st.caption("登录后可享受AI智能法律咨询 + 国家法律法规数据库检索 + 法律文书生成")
+            st.caption("登录后可享受AI智能法律咨询 + 国家法律法规数据库检索 + 法律文书生成 + 节点提醒")
             
             secret_id = st.text_input("SecretId", placeholder="请输入腾讯云 SecretId", type="password")
             secret_key = st.text_input("SecretKey", placeholder="请输入腾讯云 SecretKey", type="password")
@@ -582,6 +611,39 @@ if st.session_state.hy_client is None:
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ 登录失败：{str(e)}")
+    
+    st.stop()
+
+# ===================== 节点提醒模式 =====================
+if st.session_state.mode == "节点提醒":
+    st.markdown("## ⏰ 法律流程节点提醒")
+    st.markdown("请填写您的案件情况，系统将为您分析法律流程节点和具体时间提醒")
+    
+    with st.form("node_reminder_form"):
+        case_type = st.selectbox(
+            "案件类型", 
+            ["离婚纠纷", "合同纠纷", "劳动纠纷", "侵权纠纷", "继承纠纷", "房产纠纷", "消费者权益纠纷", "其他"]
+        )
+        
+        case_details = st.text_area(
+            "案件详情", 
+            placeholder="请详细描述您的情况，例如：\n- 事件发生时间\n- 涉及的主要问题\n- 当前进展状态\n- 您的具体需求等",
+            height=200
+        )
+        
+        submitted = st.form_submit_button("🔍 分析流程节点", use_container_width=True)
+        
+        if submitted:
+            if not case_details:
+                st.error("❌ 请填写案件详情")
+            else:
+                with st.spinner("正在分析法律流程节点..."):
+                    try:
+                        result = st.session_state.hy_client.process_node_reminder(case_type, case_details)
+                        st.markdown("### 📋 法律流程节点分析")
+                        st.markdown(result)
+                    except Exception as e:
+                        st.error(f"❌ 分析失败：{str(e)}")
     
     st.stop()
 
@@ -612,13 +674,6 @@ if st.session_state.mode == "文书生成":
                     result = st.session_state.hy_client.generate_document("起诉状", case_info)
                     st.markdown("### 📝 生成的起诉状")
                     st.markdown(result)
-                    
-                    st.download_button(
-                        label="📥 下载起诉状",
-                        data=result,
-                        file_name=f"起诉状_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                        mime="text/markdown"
-                    )
         
         elif doc_type == "答辩状":
             defendant = st.text_area("被告信息", placeholder="姓名、性别、身份证号、住址、联系方式等")
@@ -637,13 +692,6 @@ if st.session_state.mode == "文书生成":
                     result = st.session_state.hy_client.generate_document("答辩状", case_info)
                     st.markdown("### 📝 生成的答辩状")
                     st.markdown(result)
-                    
-                    st.download_button(
-                        label="📥 下载答辩状",
-                        data=result,
-                        file_name=f"答辩状_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                        mime="text/markdown"
-                    )
         
         elif doc_type == "上诉状":
             appellant = st.text_area("上诉人信息", placeholder="姓名、性别、身份证号等")
@@ -664,13 +712,6 @@ if st.session_state.mode == "文书生成":
                     result = st.session_state.hy_client.generate_document("上诉状", case_info)
                     st.markdown("### 📝 生成的上诉状")
                     st.markdown(result)
-                    
-                    st.download_button(
-                        label="📥 下载上诉状",
-                        data=result,
-                        file_name=f"上诉状_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                        mime="text/markdown"
-                    )
         
         elif doc_type == "劳动仲裁申请书":
             applicant = st.text_area("申请人信息", placeholder="姓名、性别、身份证号、住址、联系方式等")
@@ -691,13 +732,6 @@ if st.session_state.mode == "文书生成":
                     result = st.session_state.hy_client.generate_document("劳动仲裁申请书", case_info)
                     st.markdown("### 📝 生成的劳动仲裁申请书")
                     st.markdown(result)
-                    
-                    st.download_button(
-                        label="📥 下载仲裁申请书",
-                        data=result,
-                        file_name=f"劳动仲裁申请书_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                        mime="text/markdown"
-                    )
     
     st.stop()
 

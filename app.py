@@ -7,15 +7,10 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 # 导入腾讯云SDK
-try:
-    from tencentcloud.common import credential
-    from tencentcloud.common.profile.client_profile import ClientProfile
-    from tencentcloud.common.profile.http_profile import HttpProfile
-    from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
-    SDK_AVAILABLE = True
-except ImportError:
-    SDK_AVAILABLE = False
-    print("注意：腾讯云SDK未安装，将使用模拟模式")
+from tencentcloud.common import credential
+from tencentcloud.common.profile.client_profile import ClientProfile
+from tencentcloud.common.profile.http_profile import HttpProfile
+from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
 
 # 导入requests
 import requests
@@ -32,32 +27,72 @@ class NationalLawDatabase:
         self.law_summaries = {
             "离婚": {
                 "title": "中华人民共和国民法典·婚姻家庭编",
-                "content": """**第一千零七十六条** 夫妻双方自愿离婚的，应当签订书面离婚协议，并亲自到婚姻登记机关申请离婚登记。\n离婚协议应当载明双方自愿离婚的意思表示和对子女抚养、财产以及债务处理等事项协商一致的意见。\n\n**第一千零七十九条** 夫妻一方要求离婚的，可以由有关组织进行调解或者直接向人民法院提起离婚诉讼。人民法院审理离婚案件，应当进行调解；如果感情确已破裂，调解无效的，应当准予离婚。有下列情形之一，调解无效的，应当准予离婚：\n(一)重婚或者与他人同居；\n(二)实施家庭暴力或者虐待、遗弃家庭成员；\n(三)有赌博、吸毒等恶习屡教不改；\n(四)因感情不和分居满二年；\n(五)其他导致夫妻感情破裂的情形。""",
+                "content": """**第一千零七十六条** 夫妻双方自愿离婚的，应当签订书面离婚协议，并亲自到婚姻登记机关申请离婚登记。
+离婚协议应当载明双方自愿离婚的意思表示和对子女抚养、财产以及债务处理等事项协商一致的意见。
+
+**第一千零七十九条** 夫妻一方要求离婚的，可以由有关组织进行调解或者直接向人民法院提起离婚诉讼。
+人民法院审理离婚案件，应当进行调解；如果感情确已破裂，调解无效的，应当准予离婚。
+有下列情形之一，调解无效的，应当准予离婚：
+(一)重婚或者与他人同居；
+(二)实施家庭暴力或者虐待、遗弃家庭成员；
+(三)有赌博、吸毒等恶习屡教不改；
+(四)因感情不和分居满二年；
+(五)其他导致夫妻感情破裂的情形。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             },
             "结婚": {
                 "title": "中华人民共和国民法典·婚姻家庭编",
-                "content": """**第一千零四十六条** 结婚应当男女双方完全自愿，禁止任何一方对另一方加以强迫，禁止任何组织或者个人加以干涉。\n\n**第一千零四十七条** 结婚年龄，男不得早于二十二周岁，女不得早于二十周岁。\n\n**第一千零四十八条** 直系血亲或者三代以内的旁系血亲禁止结婚。\n\n**第一千零四十九条** 要求结婚的男女双方应当亲自到婚姻登记机关申请结婚登记。符合本法规定的，予以登记，发给结婚证。完成结婚登记，即确立婚姻关系。""",
+                "content": """**第一千零四十六条** 结婚应当男女双方完全自愿，禁止任何一方对另一方加以强迫，禁止任何组织或者个人加以干涉。
+
+**第一千零四十七条** 结婚年龄，男不得早于二十二周岁，女不得早于二十周岁。
+
+**第一千零四十八条** 直系血亲或者三代以内的旁系血亲禁止结婚。
+
+**第一千零四十九条** 要求结婚的男女双方应当亲自到婚姻登记机关申请结婚登记。符合本法规定的，予以登记，发给结婚证。完成结婚登记，即确立婚姻关系。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             },
             "合同": {
                 "title": "中华人民共和国民法典·合同编",
-                "content": """**第四百六十九条** 当事人订立合同，可以采用书面形式、口头形式或者其他形式。\n\n**第五百七十七条** 当事人一方不履行合同义务或者履行合同义务不符合约定的，应当承担继续履行、采取补救措施或者赔偿损失等违约责任。\n\n**第五百七十八条** 当事人一方明确表示或者以自己的行为表明不履行合同义务的，对方可以在履行期限届满前请求其承担违约责任。\n\n**第五百八十四条** 当事人一方不履行合同义务或者履行合同义务不符合约定，造成对方损失的，损失赔偿额应当相当于因违约所造成的损失，包括合同履行后可以获得的利益。""",
+                "content": """**第四百六十九条** 当事人订立合同，可以采用书面形式、口头形式或者其他形式。
+
+**第五百七十七条** 当事人一方不履行合同义务或者履行合同义务不符合约定的，应当承担继续履行、采取补救措施或者赔偿损失等违约责任。
+
+**第五百七十八条** 当事人一方明确表示或者以自己的行为表明不履行合同义务的，对方可以在履行期限届满前请求其承担违约责任。
+
+**第五百八十四条** 当事人一方不履行合同义务或者履行合同义务不符合约定，造成对方损失的，损失赔偿额应当相当于因违约所造成的损失，包括合同履行后可以获得的利益。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             },
             "劳动": {
                 "title": "中华人民共和国劳动合同法",
-                "content": """**第十条** 建立劳动关系，应当订立书面劳动合同。\n已建立劳动关系，未同时订立书面劳动合同的，应当自用工之日起一个月内订立书面劳动合同。\n\n**第十九条** 劳动合同期限三个月以上不满一年的，试用期不得超过一个月；劳动合同期限一年以上不满三年的，试用期不得超过二个月；三年以上固定期限和无固定期限的劳动合同，试用期不得超过六个月。\n\n**第四十七条** 经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资。六个月以上不满一年的，按一年计算；不满六个月的，向劳动者支付半个月工资的经济补偿。\n\n**第八十七条** 用人单位违反本法规定解除或者终止劳动合同的，应当依照本法第四十七条规定的经济补偿标准的二倍向劳动者支付赔偿金。""",
+                "content": """**第十条** 建立劳动关系，应当订立书面劳动合同。
+已建立劳动关系，未同时订立书面劳动合同的，应当自用工之日起一个月内订立书面劳动合同。
+
+**第十九条** 劳动合同期限三个月以上不满一年的，试用期不得超过一个月；劳动合同期限一年以上不满三年的，试用期不得超过二个月；三年以上固定期限和无固定期限的劳动合同，试用期不得超过六个月。
+
+**第四十七条** 经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资。六个月以上不满一年的，按一年计算；不满六个月的，向劳动者支付半个月工资的经济补偿。
+
+**第八十七条** 用人单位违反本法规定解除或者终止劳动合同的，应当依照本法第四十七条规定的经济补偿标准的二倍向劳动者支付赔偿金。""",
                 "url": "https://flk.npc.gov.cn/detail/劳动合同法"
             },
             "侵权": {
                 "title": "中华人民共和国民法典·侵权责任编",
-                "content": """**第一千一百六十五条** 行为因过错侵害他人民事权益造成损害的，应当承担侵权责任。\n依照法律规定推定行为人有过错，其不能证明自己没有过错的，应当承担侵权责任。\n\n**第一千一百七十九条** 侵害他人造成人身损害的，应当赔偿医疗费、护理费、交通费、营养费、住院伙食补助费等为治疗和康复支出的合理费用，以及因误工减少的收入。\n\n**第一千一百八十三条** 侵害自然人人身权益造成严重精神损害的，被侵权人有权请求精神损害赔偿。""",
+                "content": """**第一千一百六十五条** 行为人因过错侵害他人民事权益造成损害的，应当承担侵权责任。
+依照法律规定推定行为人有过错，其不能证明自己没有过错的，应当承担侵权责任。
+
+**第一千一百七十九条** 侵害他人造成人身损害的，应当赔偿医疗费、护理费、交通费、营养费、住院伙食补助费等为治疗和康复支出的合理费用，以及因误工减少的收入。
+
+**第一千一百八十三条** 侵害自然人人身权益造成严重精神损害的，被侵权人有权请求精神损害赔偿。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             },
             "继承": {
                 "title": "中华人民共和国民法典·继承编",
-                "content": """**第一千一百二十七条** 遗产按照下列顺序继承：\n(一)第一顺序：配偶、子女、父母；\n(二)第二顺序：兄弟姐妹、祖父母、外祖父母。\n继承开始后，由第一顺序继承人继承，第二顺序继承人不继承；没有第一顺序继承人继承的，由第二顺序继承人继承。\n\n**第一千一百三十条** 同一顺序继承人继承遗产的份额，一般应当均等。\n对生活有特殊困难又缺乏劳动能力的继承人，分配遗产时，应当予以照顾。""",
+                "content": """**第一千一百二十七条** 遗产按照下列顺序继承：
+(一)第一顺序：配偶、子女、父母；
+(二)第二顺序：兄弟姐妹、祖父母、外祖父母。
+继承开始后，由第一顺序继承人继承，第二顺序继承人不继承；没有第一顺序继承人继承的，由第二顺序继承人继承。
+
+**第一千一百三十条** 同一顺序继承人继承遗产的份额，一般应当均等。
+对生活有特殊困难又缺乏劳动能力的继承人，分配遗产时，应当予以照顾。""",
                 "url": "https://flk.npc.gov.cn/detail/民法典"
             }
         }
@@ -66,7 +101,7 @@ class NationalLawDatabase:
         """搜索法律法规"""
         matched_laws = self._search_from_preset(keyword)
         
-        if matched_laws:  # 优先从预设知识库搜索
+        if matched_laws:# 优先从预设知识库搜索
             return {
                 "success": True,
                 "total": len(matched_laws),
@@ -75,7 +110,7 @@ class NationalLawDatabase:
                 "source": "法律知识库"
             }
         
-        try:  # 从国家法律法规数据库搜索
+        try:# 从国家法律法规数据库搜索
             params = {
                 "keyword": keyword,
                 "page": page,
@@ -102,7 +137,7 @@ class NationalLawDatabase:
         
         return self._get_empty_result(keyword)
     
-    def _search_from_preset(self, keyword: str) -> List:  # 从预设知识库搜索
+    def _search_from_preset(self, keyword: str) -> List:# 从预设知识库搜索
         """从预设知识库搜索"""
         results = []
         keyword_lower = keyword.lower()
@@ -123,7 +158,7 @@ class NationalLawDatabase:
         
         return results
     
-    def _parse_search_results(self, results: List) -> List:  # 解析国家法律法规数据库搜索结果
+    def _parse_search_results(self, results: List) -> List:# 解析国家法律法规数据库搜索结果
         """解析搜索结果"""
         parsed = []
         for item in results:
@@ -149,7 +184,7 @@ class NationalLawDatabase:
             "message": f"请访问国家法律法规数据库查询：https://flk.npc.gov.cn/"
         }
     
-    def get_recommended_link(self, keyword: str) -> str:  # 获取推荐查询链接
+    def get_recommended_link(self, keyword: str) -> str:# 获取推荐查询链接
         """获取推荐查询链接"""
         return f"https://flk.npc.gov.cn/?keyword={keyword}"
 
@@ -196,26 +231,23 @@ class LocalLawDatabase:
         except Exception:
             return False
 
-# ===================== 混元AI客户端（优化版） =====================
+# ===================== 混元AI客户端 =====================
 class HunyuanClient:
-    def __init__(self, secret_id, secret_key, law_db):  # 初始化混元AI客户端
-        if SDK_AVAILABLE:
-            self.cred = credential.Credential(secret_id, secret_key)
-            self.httpProfile = HttpProfile()
-            self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
-            self.clientProfile = ClientProfile()
-            self.clientProfile.httpProfile = self.httpProfile
-            self.client = hunyuan_client.HunyuanClient(self.cred, "ap-beijing", self.clientProfile)
-        else:
-            self.client = None
+    def __init__(self, secret_id, secret_key, law_db):# 初始化混元AI客户端
+        self.cred = credential.Credential(secret_id, secret_key)
+        self.httpProfile = HttpProfile()
+        self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
+        self.clientProfile = ClientProfile()
+        self.clientProfile.httpProfile = self.httpProfile
+        self.client = hunyuan_client.HunyuanClient(self.cred, "ap-beijing", self.clientProfile)
         self.law_db = law_db
         self.national_law_db = NationalLawDatabase()
 
-    def search_national_laws(self, keyword: str) -> Dict:  # 搜索国家法律法规数据库
+    def search_national_laws(self, keyword: str) -> Dict:# 搜索国家法律法规数据库
         """搜索国家法律法规数据库"""
         return self.national_law_db.search_laws(keyword)
 
-    def _clean_messages(self, messages):  # 清理消息格式
+    def _clean_messages(self, messages):# 清理消息格式
         """清理消息格式，确保符合API要求"""
         cleaned = []
         for msg in messages:
@@ -232,10 +264,6 @@ class HunyuanClient:
 
     def chat(self, prompt, system_prompt):
         """通用对话接口"""
-        if not SDK_AVAILABLE:
-            # 模拟AI回复
-            return self._simulate_response(prompt, system_prompt)
-        
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
@@ -277,16 +305,7 @@ class HunyuanClient:
             return f"❌ AI服务请求失败：{str(e)}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
     def chat_with_history(self, messages, system_prompt):
-        """支持多轮对话 - 优化版本"""
-        if not SDK_AVAILABLE:
-            # 模拟AI回复
-            latest_user_msg = ""
-            for msg in reversed(messages):
-                if msg.get("role") == "user":
-                    latest_user_msg = msg["content"]
-                    break
-            return self._simulate_response(latest_user_msg, system_prompt)
-        
+        """支持多轮对话 - 修复版本"""
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
@@ -312,7 +331,7 @@ class HunyuanClient:
                         law_context += f"\n🔗 查看原文：{law.get('url')}\n"
                 enhanced_system_prompt += law_context
             
-            # 构建消息列表 - 确保格式正确
+            # 构建消息列表 - 关键修复：确保格式正确
             full_messages = [{"Role": "system", "Content": enhanced_system_prompt}]
             
             # 过滤并添加历史消息，只保留 user 和 assistant
@@ -346,40 +365,47 @@ class HunyuanClient:
                     pass
             return f"❌ 请求失败：{error_msg}\n\n您也可以直接访问国家法律法规数据库 https://flk.npc.gov.cn/ 查询"
 
-    def _simulate_response(self, prompt, system_prompt):
-        """模拟AI回复，用于演示或SDK不可用时"""
-        # 简化的模拟回复逻辑
-        national_laws = self.national_law_db.search_laws(prompt)
-        
-        response = f"您好！我收到了您的法律咨询：\n\n> {prompt}\n\n"
-        
-        if national_laws.get("success") and national_laws.get("list"):
-            response += "**相关法律条文：**\n\n"
-            for law in national_laws.get("list", [])[:2]:  # 限制显示数量
-                response += f"### 📜 {law.get('title', '未知标题')}\n"
-                response += f"{law.get('content', law.get('summary', ''))[:500]}...\n\n"
-                if law.get('url'):
-                    response += f"[查看详情]({law.get('url')})\n\n"
-        else:
-            response += "未能找到直接相关的法律条文，建议您访问国家法律法规数据库查询更多信息。\n\n"
-        
-        response += "如需进一步咨询，请提供更详细的情况说明。"
-        return response
-
     def generate_document(self, doc_type: str, case_info: Dict) -> str:
         """生成法律文书"""
-        if not SDK_AVAILABLE:
-            return f"模拟生成：{doc_type}\n\n由于SDK未安装，无法实际生成文书。"
-        
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
             doc_prompts = {
-                "起诉状": f"""请根据以下信息生成一份标准的民事起诉状：\n\n原告信息：{case_info.get('plaintiff', '未提供')}\n被告信息：{case_info.get('defendant', '未提供')}\n诉讼请求：{case_info.get('claims', '未提供')}\n事实与理由：{case_info.get('facts', '未提供')}\n\n请按照法律文书格式生成，包括：标题、当事人信息、诉讼请求、事实与理由、此致、落款等。""",
-                "答辩状": f"""请根据以下信息生成一份标准的民事答辩状：\n\n被告信息：{case_info.get('defendant', '未提供')}\n原告信息：{case_info.get('plaintiff', '未提供')}\n答辩意见：{case_info.get('defense', '未提供')}\n\n请按照法律文书格式生成。""",
-                "上诉状": f"""请根据以下信息生成一份标准的民事上诉状：\n\n上诉人：{case_info.get('appellant', '未提供')}\n被上诉人：{case_info.get('appellee', '未提供')}\n上诉请求：{case_info.get('requests', '未提供')}\n上诉理由：{case_info.get('reasons', '未提供')}\n\n请按照法律文书格式生成。""",
-                "劳动仲裁申请书": f"""请根据以下信息生成一份劳动仲裁申请书：\n\n申请人：{case_info.get('applicant', '未提供')}\n被申请人：{case_info.get('respondent', '未提供')}\n仲裁请求：{case_info.get('claims', '未提供')}\n事实与理由：{case_info.get('facts', '未提供')}\n\n请按照劳动仲裁申请书格式生成。"""
+                "起诉状": f"""请根据以下信息生成一份标准的民事起诉状：
+
+原告信息：{case_info.get('plaintiff', '未提供')}
+被告信息：{case_info.get('defendant', '未提供')}
+诉讼请求：{case_info.get('claims', '未提供')}
+事实与理由：{case_info.get('facts', '未提供')}
+
+请按照法律文书格式生成，包括：标题、当事人信息、诉讼请求、事实与理由、此致、落款等。""",
+
+                "答辩状": f"""请根据以下信息生成一份标准的民事答辩状：
+
+被告信息：{case_info.get('defendant', '未提供')}
+原告信息：{case_info.get('plaintiff', '未提供')}
+答辩意见：{case_info.get('defense', '未提供')}
+
+请按照法律文书格式生成。""",
+
+                "上诉状": f"""请根据以下信息生成一份标准的民事上诉状：
+
+上诉人：{case_info.get('appellant', '未提供')}
+被上诉人：{case_info.get('appellee', '未提供')}
+上诉请求：{case_info.get('requests', '未提供')}
+上诉理由：{case_info.get('reasons', '未提供')}
+
+请按照法律文书格式生成。""",
+
+                "劳动仲裁申请书": f"""请根据以下信息生成一份劳动仲裁申请书：
+
+申请人：{case_info.get('applicant', '未提供')}
+被申请人：{case_info.get('respondent', '未提供')}
+仲裁请求：{case_info.get('claims', '未提供')}
+事实与理由：{case_info.get('facts', '未提供')}
+
+请按照劳动仲裁申请书格式生成。"""
             }
             
             prompt = doc_prompts.get(doc_type, doc_prompts["起诉状"])
@@ -396,14 +422,22 @@ class HunyuanClient:
 
     def process_node_reminder(self, case_type: str, case_details: str) -> str:
         """处理节点提醒功能"""
-        if not SDK_AVAILABLE:
-            return f"模拟分析：{case_type} 类型案件\n\n由于SDK未安装，无法实际分析流程节点。"
-        
         try:
             req = models.ChatCompletionsRequest()
             req.Model = "hunyuan-standard"
             
-            prompt = f"""请根据以下案件信息，分析并输出完整的法律流程节点和具体时间提醒：\n\n案件类型：{case_type}\n案件详情：{case_details}\n\n请按以下格式输出：\n1. 案件流程节点（按时间顺序列出每个关键节点）\n2. 每个节点的具体法律时效和时间限制\n3. 重要提醒事项（如证据保存、诉讼时效等）\n4. 建议的行动步骤\n\n请确保信息准确、实用。"""
+            prompt = f"""请根据以下案件信息，分析并输出完整的法律流程节点和具体时间提醒：
+
+案件类型：{case_type}
+案件详情：{case_details}
+
+请按以下格式输出：
+1. 案件流程节点（按时间顺序列出每个关键节点）
+2. 每个节点的具体法律时效和时间限制
+3. 重要提醒事项（如证据保存、诉讼时效等）
+4. 建议的行动步骤
+
+请确保信息准确、实用。"""
             
             req.Messages = [
                 {"Role": "system", "Content": "你是专业的法律流程助手，请结合国家法律法规，分析案件的关键节点、法律时效、流程提醒。回答要清晰易懂，标注重要时间节点。"},
@@ -704,7 +738,7 @@ if st.session_state.mode == "文书生成":
 
 # ===================== 主聊天区域 =====================
 if not st.session_state.messages:
-    welcome_msg = """欢迎使用司法流程辅助系统！如果您有任何具体的法律问题或需要了解某个法律条文，请告诉我，我会尽力为您提供详细的信息和解释。
+    welcome_msg = """如果您有任何具体的法律问题或需要了解某个法律条文，请告诉我，我会尽力为您提供详细的信息和解释。
 
 例如，如果您想了解关于离婚的具体规定，我可以为您解读《中华人民共和国民法典》中的相关条款：
 
@@ -748,7 +782,7 @@ if prompt:
     
     # 获取AI回复
     with st.chat_message("assistant"):
-        with st.spinner("🔍 正在检索国家法律法规数据库并生成回复..."):
+        with st.spinner("🔍 正在检索国家法律法规数据库..."):
             try:
                 # 传入完整的历史消息（不包括刚添加的assistant回复）
                 history = st.session_state.messages[:-1]

@@ -625,15 +625,25 @@ st.markdown("""
 st.title("⚖️ 司法流程辅助与节点提醒系统")
 st.markdown("*连接国家法律法规数据库 | 智能法律咨询 | 支持演示模式*")
 
-# 会话状态初始化
-if "hy_client" not in st.session_state:
-    st.session_state.hy_client = None
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "mode" not in st.session_state:
-    st.session_state.mode = "法律解释"
-if "use_demo" not in st.session_state:
-    st.session_state.use_demo = True
+# ===================== 会话状态初始化（关键修复） =====================
+def init_session_state():
+    """初始化所有 session state 变量"""
+    # 基础变量
+    if "hy_client" not in st.session_state:
+        st.session_state.hy_client = None
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "mode" not in st.session_state:
+        st.session_state.mode = "法律解释"
+    if "use_demo" not in st.session_state:
+        st.session_state.use_demo = True
+    
+    # 初始化 law_db（修复 AttributeError 的关键）
+    if "law_db" not in st.session_state:
+        st.session_state.law_db = LocalLawDatabase()
+
+# 调用初始化函数
+init_session_state()
 
 # ===================== 侧边栏 =====================
 with st.sidebar:
@@ -670,7 +680,7 @@ with st.sidebar:
     else:
         st.info("💡 使用演示模式（无需密钥）")
         if st.button("🔄 切换到演示模式", use_container_width=True):
-            st.session_state.hy_client = HunyuanClient()
+            st.session_state.hy_client = HunyuanClient(law_db=st.session_state.law_db)
             st.session_state.use_demo = True
             st.rerun()
     
@@ -760,7 +770,7 @@ with st.sidebar:
 
 # ===================== 初始化客户端 =====================
 if st.session_state.hy_client is None:
-    st.session_state.hy_client = HunyuanClient()
+    st.session_state.hy_client = HunyuanClient(law_db=st.session_state.law_db)
     st.session_state.use_demo = True
 
 # ===================== 主聊天区域 =====================

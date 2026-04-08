@@ -292,7 +292,7 @@ class UserInfoManager:
 
 # ===================== 混元AI客户端 =====================
 class HunyuanClient:
-    def __init__(self, secret_id, secret_key, law_db):  # 初始化混元AI客户端
+    def __init__(self, secret_id, secret_key, law_db, user_info_manager):  # 初始化混元AI客户端
         self.cred = credential.Credential(secret_id, secret_key)
         self.httpProfile = HttpProfile()
         self.httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
@@ -301,25 +301,11 @@ class HunyuanClient:
         self.client = hunyuan_client.HunyuanClient(self.cred, "ap-beijing", self.clientProfile)
         self.law_db = law_db
         self.national_law_db = NationalLawDatabase()
+        self.user_info_manager = user_info_manager  # 存储 user_info_manager
 
     def search_national_laws(self, keyword: str) -> Dict:  # 搜索国家法律法规数据库
         """搜索国家法律法规数据库"""
         return self.national_law_db.search_laws(keyword)
-
-    def _clean_messages(self, messages):  # 清理消息格式
-        """清理消息格式，确保符合API要求"""
-        cleaned = []
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            
-            # 只保留 user、assistant、system 角色
-            if role in ["user", "assistant", "system"] and content:
-                # 转换角色名称为API要求的格式
-                api_role = "assistant" if role == "assistant" else role
-                cleaned.append({"Role": api_role, "Content": content})
-        
-        return cleaned
 
     def chat(self, prompt, system_prompt):
         """通用对话接口"""
@@ -383,8 +369,8 @@ class HunyuanClient:
             
             # 添加用户信息到系统提示
             if user_info:
-                # 使用全局的 user_info_manager 实例
-                user_info_str = st.session_state.user_info_manager.format_user_info(user_info)
+                # 使用传入的 user_info_manager 实例
+                user_info_str = self.user_info_manager.format_user_info(user_info)
                 if user_info_str != "暂无用户信息":
                     enhanced_system_prompt = f"{enhanced_system_prompt}\n\n{user_info_str}\n请根据用户的个人情况和案件信息，提供针对性的法律建议。"
             
@@ -410,8 +396,10 @@ class HunyuanClient:
                 elif role == "assistant" and content:
                     full_messages.append({"Role": "assistant", "Content": content})
             
-            if full_messages and full_messages[-1]["Role"] != "user":
-                full_messages.append({"Role": "user", "Content": latest_user_msg or "请继续"})
+            # 确保最后一条消息是用户消息
+            if not full_messages or full_messages[-1]["Role"] != "user":
+                if latest_user_msg:
+                    full_messages.append({"Role": "user", "Content": latest_user_msg})
             
             req.Messages = full_messages
             req.Temperature = 0.7
@@ -420,6 +408,7 @@ class HunyuanClient:
             
         except Exception as e:
             error_msg = str(e)
+            print(f"Error in chat_with_history: {error_msg}")  # 调试信息
             if "InvalidParameter" in error_msg:
                 try:
                     return self.chat(latest_user_msg if 'latest_user_msg' in locals() else "", system_prompt)
@@ -562,10 +551,10 @@ def init_session_state():
         st.session_state.hy_client = None
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "welcome_message" not in st.session_state:  # 新增：欢迎消息单独存储
-        st.session_state.welcome_message = None
+    if "welcome_shown" not in st.session_state:  # 标记欢迎消息是否已显示
+        st.session_state.welcome_shown = False
     if "mode" not in st.session_state:
-        st.session_state.mode = "法律解释"
+        st.session_state.mode = "智能对话"  # 默认改为智能对话
     if "law_db" not in st.session_state:
         st.session_state.law_db = LocalLawDatabase()
     if "user_info_collected" not in st.session_state:
@@ -606,7 +595,7 @@ with st.sidebar:
         if st.button("🚪 退出登录", use_container_width=True):
             st.session_state.hy_client = None
             st.session_state.messages = []
-            st.session_state.welcome_message = None  # 清空欢迎消息
+            st.session_state.welcome_shown = False
             st.session_state.collecting_info = True
             st.session_state.user_info_collected = {}
             st.rerun()
@@ -636,9 +625,9 @@ with st.sidebar:
     if st.session_state.hy_client is not None and not st.session_state.collecting_info:
         st.markdown("### 🎯 对话模式")
         mode_options = {
+            "智能对话": "💬 智能对话",
             "法律解释": "📚 法律解释",
             "节点提醒": "⏰ 节点提醒", 
-            "智能对话": "💬 智能对话",
             "文书生成": "📄 文书生成"
         }
         
@@ -646,7 +635,7 @@ with st.sidebar:
         for i, (mode_key, mode_label) in enumerate(mode_options.items()):
             col = cols[i % 2]
             with col:
-                if st.button(mode_label, key=f"mode_{mode_key}"):
+                if st.button(mode_label, key=f"mode_{mode_key}", use_container_width=True):
                     st.session_state.mode = mode_key
                     st.rerun()
         
@@ -658,7 +647,7 @@ with st.sidebar:
         st.markdown("### 🛠️ 对话控制")
         if st.button("🗑️ 清空对话", use_container_width=True):
             st.session_state.messages = []
-            st.session_state.welcome_message = None  # 同时清空欢迎消息
+            st.session_state.welcome_shown = False
             st.rerun()
     
     st.markdown("---")
@@ -667,9 +656,9 @@ with st.sidebar:
     with st.expander("ℹ️ 使用帮助"):
         st.markdown("""
         **功能介绍：**
+        - 💬 **智能对话**：日常法律咨询，通俗解释
         - 📚 **法律解释**：解读法律条文，匹配相关法条
         - ⏰ **节点提醒**：输入您的案件情况，获取法律流程节点和具体时间提醒
-        - 💬 **智能对话**：日常法律咨询，通俗解释
         - 📄 **文书生成**：生成标准法律文书（起诉状、答辩状等）
         
         **数据来源：**
@@ -707,7 +696,7 @@ if st.session_state.hy_client is None:
                 else:
                     with st.spinner("正在验证密钥并初始化系统..."):
                         try:
-                            cli = HunyuanClient(secret_id, secret_key, st.session_state.law_db)
+                            cli = HunyuanClient(secret_id, secret_key, st.session_state.law_db, st.session_state.user_info_manager)
                             test_result = cli.chat("测试连接", "你只需回复'正常'")
                             st.session_state.hy_client = cli
                             st.success("✅ 登录成功！已连接国家法律法规数据库")
@@ -986,13 +975,8 @@ if st.session_state.mode == "文书生成":
     st.stop()
 
 # ===================== 智能对话主聊天区域 =====================
-# 显示欢迎消息（如果存在）
-if st.session_state.welcome_message:
-    with st.chat_message("assistant"):
-        st.markdown(st.session_state.welcome_message)
-
-# 如果没有对话历史且没有欢迎消息，生成欢迎消息
-if not st.session_state.messages and not st.session_state.welcome_message:
+# 显示欢迎消息（仅当没有对话历史且未显示过欢迎消息时）
+if not st.session_state.messages and not st.session_state.welcome_shown:
     # 根据用户信息生成个性化欢迎消息
     user_name = st.session_state.user_info_collected.get("name", "用户")
     case_type = st.session_state.user_info_collected.get("case_type", "")
@@ -1025,8 +1009,10 @@ if not st.session_state.messages and not st.session_state.welcome_message:
 请随时向我提问，我会结合您的具体情况，为您提供专业的法律建议！
 """
     
-    st.session_state.welcome_message = welcome_msg
-    st.rerun()
+    with st.chat_message("assistant"):
+        st.markdown(welcome_msg)
+    
+    st.session_state.welcome_shown = True
 
 # 显示对话历史
 for msg in st.session_state.messages:
@@ -1067,8 +1053,11 @@ if prompt:
         with st.spinner("🔍 正在检索国家法律法规数据库并分析您的个人情况..."):
             try:
                 # 传入完整的历史消息和用户信息（只传递真正的对话历史）
+                # 注意：st.session_state.messages 已经包含了刚添加的用户消息
+                history = st.session_state.messages[:-1]  # 获取除了最后一条用户消息外的所有历史
+                
                 response = st.session_state.hy_client.chat_with_history(
-                    st.session_state.messages[:-1],  # 不包含当前问题
+                    history,
                     system_prompt,
                     st.session_state.user_info_collected
                 )

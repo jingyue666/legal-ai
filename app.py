@@ -236,28 +236,14 @@ class TextHighlighter:
     """文本高亮处理器 - 用于法律解释模块的关键信息变色"""
     
     def __init__(self):
-        # 定义需要高亮的关键词模式
+        # 定义需要高亮的关键词模式（只保留三类）
         self.highlight_patterns = {
-            # 法律术语 - 红色高亮
-            "legal_terms": {
-                "pattern": r"(诉讼时效|除斥期间|管辖权|举证责任|过错责任|无过错责任|连带责任|按份责任|违约责任|侵权责任|不当得利|无因管理|善意取得|善意第三人|表见代理|无权代理|效力待定|可撤销|无效|附条件|附期限|同时履行抗辩权|先履行抗辩权|不安抗辩权|代位权|撤销权|抵押权|质权|留置权|保证|定金|违约金)",
-                "color": "#d32f2f",
-                "bg_color": "#ffebee",
-                "css_class": "legal-term"
-            },
             # 时间期限 - 橙色高亮
             "time_limits": {
-                "pattern": r"(\d+年|\d+个月|\d+日|\d+天|\d+小时|期间|期限|时效|起算|届满|延长|中断|中止)",
+                "pattern": r"(\d+年|\d+个月|\d+日|\d+天|\d+小时|期间|期限|时效|起算|届满|延长|中断|中止|除斥期间|诉讼时效)",
                 "color": "#e65100",
                 "bg_color": "#fff3e0",
                 "css_class": "time-limit"
-            },
-            # 金额数字 - 绿色高亮
-            "amounts": {
-                "pattern": r"(\d+元|\d+万元|\d+亿美元|\d+万|赔偿\w*额|补偿\w*额|价款|报酬|费用|损失|违约金|定金|罚款|罚金)",
-                "color": "#2e7d32",
-                "bg_color": "#e8f5e9",
-                "css_class": "amount"
             },
             # 法律条文 - 蓝色高亮
             "law_articles": {
@@ -266,16 +252,9 @@ class TextHighlighter:
                 "bg_color": "#e3f2fd",
                 "css_class": "law-article"
             },
-            # 重要提示词 - 紫色高亮
-            "important_words": {
-                "pattern": r"(注意|警告|提示|重要|必须|应当|不得|禁止|可以|有权|义务|责任|承担|享有|行使|履行|保护|保障|维护)",
-                "color": "#6a1b9a",
-                "bg_color": "#f3e5f5",
-                "css_class": "important-word"
-            },
             # 程序步骤 - 青色高亮
             "procedures": {
-                "pattern": r"(起诉|应诉|答辩|举证|质证|辩论|调解|和解|仲裁|复议|上诉|申诉|抗诉|再审|执行|查封|扣押|冻结|拍卖|变卖)",
+                "pattern": r"(起诉|应诉|答辩|举证|质证|辩论|调解|和解|仲裁|复议|上诉|申诉|抗诉|再审|执行|查封|扣押|冻结|拍卖|变卖|立案|审理|判决|裁定|决定|送达|公告)",
                 "color": "#00695c",
                 "bg_color": "#e0f2f1",
                 "css_class": "procedure"
@@ -367,36 +346,14 @@ class TextHighlighter:
         """获取高亮样式CSS"""
         css = """
         <style>
-            /* 法律术语高亮 - 红色 */
-            .legal-term {
-                background-color: #ffebee;
-                color: #d32f2f;
-                font-weight: 600;
-                padding: 2px 4px;
-                border-radius: 4px;
-                border-left: 3px solid #d32f2f;
-                margin: 0 2px;
-            }
-            
             /* 时间期限高亮 - 橙色 */
             .time-limit {
                 background-color: #fff3e0;
                 color: #e65100;
                 font-weight: 600;
-                padding: 2px 4px;
+                padding: 2px 6px;
                 border-radius: 4px;
                 border-left: 3px solid #e65100;
-                margin: 0 2px;
-            }
-            
-            /* 金额数字高亮 - 绿色 */
-            .amount {
-                background-color: #e8f5e9;
-                color: #2e7d32;
-                font-weight: 600;
-                padding: 2px 4px;
-                border-radius: 4px;
-                border-left: 3px solid #2e7d32;
                 margin: 0 2px;
             }
             
@@ -405,20 +362,9 @@ class TextHighlighter:
                 background-color: #e3f2fd;
                 color: #1565c0;
                 font-weight: 600;
-                padding: 2px 4px;
+                padding: 2px 6px;
                 border-radius: 4px;
                 border-left: 3px solid #1565c0;
-                margin: 0 2px;
-            }
-            
-            /* 重要提示词高亮 - 紫色 */
-            .important-word {
-                background-color: #f3e5f5;
-                color: #6a1b9a;
-                font-weight: 600;
-                padding: 2px 4px;
-                border-radius: 4px;
-                border-left: 3px solid #6a1b9a;
                 margin: 0 2px;
             }
             
@@ -427,7 +373,7 @@ class TextHighlighter:
                 background-color: #e0f2f1;
                 color: #00695c;
                 font-weight: 600;
-                padding: 2px 4px;
+                padding: 2px 6px;
                 border-radius: 4px;
                 border-left: 3px solid #00695c;
                 margin: 0 2px;
@@ -437,7 +383,7 @@ class TextHighlighter:
             .highlight-legend {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 12px;
+                gap: 16px;
                 padding: 12px 16px;
                 background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
                 border-radius: 12px;
@@ -448,13 +394,13 @@ class TextHighlighter:
             .legend-item {
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 8px;
                 font-size: 13px;
             }
             
             .legend-color {
-                width: 16px;
-                height: 16px;
+                width: 20px;
+                height: 20px;
                 border-radius: 4px;
                 border-left: 3px solid;
             }
@@ -462,23 +408,6 @@ class TextHighlighter:
             .legend-label {
                 color: #333;
                 font-weight: 500;
-            }
-            
-            /* 法律解释回答区域 */
-            .law-explanation-container {
-                background: linear-gradient(135deg, #fafbfc 0%, #f0f4f8 100%);
-                border-radius: 12px;
-                padding: 20px;
-                border: 1px solid #e0e7ef;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-            }
-            
-            .law-explanation-container h1,
-            .law-explanation-container h2,
-            .law-explanation-container h3 {
-                color: #1a1a2e;
-                border-bottom: 2px solid #1f77b4;
-                padding-bottom: 8px;
             }
         </style>
         """
@@ -489,24 +418,12 @@ class TextHighlighter:
         legend_html = """
         <div class="highlight-legend">
             <div class="legend-item">
-                <div class="legend-color" style="background-color: #ffebee; border-left-color: #d32f2f;"></div>
-                <span class="legend-label">🔴 法律术语</span>
-            </div>
-            <div class="legend-item">
                 <div class="legend-color" style="background-color: #fff3e0; border-left-color: #e65100;"></div>
                 <span class="legend-label">🟠 时间期限</span>
             </div>
             <div class="legend-item">
-                <div class="legend-color" style="background-color: #e8f5e9; border-left-color: #2e7d32;"></div>
-                <span class="legend-label">🟢 金额数字</span>
-            </div>
-            <div class="legend-item">
                 <div class="legend-color" style="background-color: #e3f2fd; border-left-color: #1565c0;"></div>
                 <span class="legend-label">🔵 法律条文</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color" style="background-color: #f3e5f5; border-left-color: #6a1b9a;"></div>
-                <span class="legend-label">🟣 重要提示</span>
             </div>
             <div class="legend-item">
                 <div class="legend-color" style="background-color: #e0f2f1; border-left-color: #00695c;"></div>
@@ -908,11 +825,8 @@ with st.sidebar:
         - 📄 **文书生成**：生成标准法律文书（起诉状、答辩状等）
         
         **法律解释模式高亮说明：**
-        - 🔴 红色：法律术语
         - 🟠 橙色：时间期限
-        - 🟢 绿色：金额数字
         - 🔵 蓝色：法律条文
-        - 🟣 紫色：重要提示词
         - 🔵 青色：程序步骤
         
         **数据来源：**
@@ -1087,11 +1001,8 @@ if not st.session_state.messages and not st.session_state.welcome_shown:
 您好！我是司法流程辅助系统的智能助手。👋
 
 当前处于 **📚 法律解释模式**，系统会自动高亮显示以下关键信息：
-- 🔴 **法律术语**（如：诉讼时效、举证责任等）
-- 🟠 **时间期限**（如：1年、30日等）
-- 🟢 **金额数字**（如：赔偿额、违约金等）
+- 🟠 **时间期限**（如：1年、30日、诉讼时效等）
 - 🔵 **法律条文**（如：第X条、《XX法》等）
-- 🟣 **重要提示词**（如：应当、不得、必须等）
 - 🔵 **程序步骤**（如：起诉、上诉、执行等）
 
 请随时向我提问，我会为您提供专业的法律建议！

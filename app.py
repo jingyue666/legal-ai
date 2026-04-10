@@ -741,7 +741,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 标题
-st.title("⚖️ 司法流程辅助与节点提醒系统")
+st.title("⚖️ 智法节点通————司法流程辅助与节点提醒系统")
 st.markdown("*连接国家法律法规数据库 | 智能法律咨询 | 多轮对话 | 文书生成 | 节点提醒*")
 
 # ===================== 侧边栏 =====================
@@ -998,7 +998,7 @@ if st.session_state.mode == "文书生成":
 if not st.session_state.messages and not st.session_state.welcome_shown:
     if st.session_state.mode == "法律解释":
         welcome_msg = """
-您好！我是司法流程辅助系统的智能助手。👋
+您好！我是智法节点通的智能助手。👋
 
 当前处于 **📚 法律解释模式**，系统会自动高亮显示以下关键信息：
 - 🟠 **时间期限**（如：1年、30日、诉讼时效等）
@@ -1009,7 +1009,7 @@ if not st.session_state.messages and not st.session_state.welcome_shown:
 """
     else:
         welcome_msg = """
-您好！我是司法流程辅助系统的智能助手。👋
+您好！我是智法节点通的智能助手。👋
 
 您可以：
 - 📚 询问具体法律条文的解释
